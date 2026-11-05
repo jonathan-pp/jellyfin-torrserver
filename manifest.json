@@ -1,0 +1,21 @@
+[
+  {
+    "guid": "655fbf1b-525b-4f82-bdeb-f27dd0bdd606",
+    "name": "TorrServer",
+    "description": "Films et séries en streaming via Prowlarr + TorrServer, sans rien télécharger.",
+    "overview": "Bibliothèque de films et séries lus en streaming.",
+    "owner": "jonathan-pp",
+    "category": "General",
+    "imageUrl": "https://raw.githubusercontent.com/jonathan-pp/jellyfin-torrserver/main/assets/logo.png",
+    "versions": [
+      {
+        "version": "0.2.0.0",
+        "changelog": "Réécriture : bibliothèque native (.strm), choix automatique de la meilleure source.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/jonathan-pp/jellyfin-torrserver/main/dist/TorrServer-0.2.0.0.zip",
+        "checksum": "717b6977a4f09938e5c6bf97a603f22d",
+        "timestamp": "2026-11-05T20:49:29Z"
+      }
+    ]
+  }
+]

@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>TorrServer</title></head>
+<body>
+<div id="TorrServerPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+<div data-role="content"><div class="content-primary">
+<style>
+ #TorrServerPage .ts-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:1em;margin:1em 0}
+ #TorrServerPage .ts-card{display:flex;flex-direction:column;background:rgba(127,127,127,.12);border-radius:6px;overflow:hidden}
+ #TorrServerPage .ts-card img,#TorrServerPage .ts-noimg{width:100%;aspect-ratio:2/3;object-fit:cover;background:#2a2a2a;display:flex;align-items:center;justify-content:center;font-size:2em}
+ #TorrServerPage .ts-meta{padding:.5em;font-size:.9em;flex:1}
+ #TorrServerPage .ts-meta b{display:block}
+ #TorrServerPage .ts-meta small{opacity:.7}
+ #TorrServerPage .ts-card button{margin:.5em;font-size:.85em}
+ #TorrServerPage .ts-status{margin:.5em 0;opacity:.9;white-space:pre-line}
+ #TorrServerPage h2{margin-top:1.8em}
+ #TorrServerPage .ts-row{display:flex;gap:.5em;align-items:flex-end;flex-wrap:wrap}
+ #TorrServerPage .ts-row .inputContainer{flex:1;min-width:14em;margin:0}
+ #TorrServerPage .ts-seasons{margin:.4em;font-size:.85em}
+ #TorrServerPage .ts-tabs{display:flex;gap:.5em;flex-wrap:wrap;margin:1em 0 .5em}
+ #TorrServerPage .ts-tabs button.active{background:var(--theme-primary-color,#00a4dc);color:#fff}
+ #TorrServerPage .ts-card.click{cursor:pointer}
+ #TorrServerPage .ts-card.click:hover{outline:2px solid var(--theme-primary-color,#00a4dc)}
+ #tsOverlay{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:10000;display:none;overflow:auto;padding:2vh 2vw;color:#eee}
+ #tsOverlay .ts-panel{background:#181818;max-width:980px;margin:0 auto;border-radius:8px;padding:1.2em;position:relative}
+ #tsOverlay .ts-close{position:absolute;top:.4em;right:.6em;font-size:1.6em;background:none;border:0;color:#eee;cursor:pointer}
+ #tsOverlay .ts-head{display:flex;gap:1.2em;flex-wrap:wrap}
+ #tsOverlay .ts-head img{width:200px;max-width:40%;border-radius:6px;align-self:flex-start}
+ #tsOverlay .ts-info{flex:1;min-width:14em}
+ #tsOverlay h2{margin:.2em 0}
+ #tsOverlay .ts-sub{opacity:.7;margin-bottom:.6em}
+ #tsOverlay .ts-actions{display:flex;gap:.5em;flex-wrap:wrap;margin:1em 0}
+ #tsOverlay .ts-strip{display:flex;gap:.7em;overflow-x:auto;padding-bottom:.5em}
+ #tsOverlay .ts-strip .it{width:100px;flex:none;font-size:.8em;text-align:center}
+ #tsOverlay .ts-strip img,#tsOverlay .ts-strip .ph{width:100px;height:150px;object-fit:cover;border-radius:4px;background:#2a2a2a;display:block}
+ #tsOverlay .ts-strip .rec{cursor:pointer}
+ #tsOverlay .ts-strip .person img,#tsOverlay .ts-strip .person .ph{height:100px;border-radius:50%;width:100px}
+ #tsOverlay table{width:100%;border-collapse:collapse;font-size:.85em}
+ #tsOverlay td,#tsOverlay th{padding:.4em .5em;text-align:left;border-bottom:1px solid rgba(255,255,255,.1);vertical-align:middle}
+ #tsOverlay .badge{display:inline-block;padding:0 .4em;border-radius:3px;background:rgba(0,164,220,.3);font-size:.8em;margin-left:.4em}
+ #tsOverlay .scroll-x{overflow-x:auto}
+ #tsOverlay select,#tsOverlay input[type=number]{background:#222;color:#eee;border:1px solid #444;padding:.3em;border-radius:4px}
+  .ts-user{border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:.7em 1em;margin:.6em 0;background:rgba(255,255,255,.03)}
+  .ts-user-head{display:flex;flex-wrap:wrap;align-items:center;gap:.4em 1.6em}
+  .ts-user-head b{font-size:1.1em;min-width:8em}
+  .ts-user label{display:inline-flex;align-items:center;gap:.4em;cursor:pointer}
+  .ts-user input[type=checkbox]{width:1.1em;height:1.1em}
+  .ts-prof{margin-top:.8em;display:grid;grid-template-columns:repeat(auto-fill,minmax(14em,1fr));gap:.7em 1em}
+  .ts-prof .wide{grid-column:1/-1}
+  .ts-prof span.l{display:block;font-size:.85em;opacity:.75;margin-bottom:.2em}
+  .ts-prof input[type=text],.ts-prof input[type=number],.ts-prof select{width:100%;box-sizing:border-box;background:#222;color:#eee;border:1px solid #444;padding:.35em;border-radius:4px}
+  .ts-idx{display:flex;flex-wrap:wrap;gap:.4em .9em}
+  .ts-idx .off{opacity:.5}
+</style>
+<h1>TorrServer</h1>
+<p><a is="emby-linkbutton" class="raised button-submit" href="/TorrServerPlugin/app/" target="_blank" style="display:inline-block;padding:.6em 1.2em">▶ Ouvrir l'application (films, séries, animes)</a></p>
+<p class="fieldDescription">Adresse à donner aux utilisateurs : <b>http://&lt;adresse-du-serveur&gt;:8096/TorrServerPlugin/app/</b> — sur téléphone, « Ajouter à l'écran d'accueil ».</p>
+<p>Films et séries en streaming : rien n'est téléchargé sur le disque. Ajoutez un titre, il apparaît dans la bibliothèque Jellyfin avec son affiche ; au clic sur lecture, la meilleure source est choisie automatiquement.</p>
+
+<h2>Catalogue automatique</h2>
+<p>Tous les utilisateurs voient les titres populaires et les mieux notés de TMDB dans la bibliothèque, sans rien demander : ce ne sont que de petits fichiers, rien n'est stocké. La source n'est cherchée qu'au moment de lancer la lecture.</p>
+<div id="tsAutoStatus" class="ts-status">…</div>
+<div class="ts-row">
+  <button is="emby-button" type="button" class="raised button-submit" id="tsSync"><span>Mettre à jour maintenant</span></button>
+</div>
+
+<h2>Parcourir et ajouter un titre</h2>
+<p class="ts-status">Pour un titre absent du catalogue automatique : cherchez-le ou parcourez les onglets, puis ajoutez-le.</p>
+<div class="ts-tabs">
+  <button is="emby-button" type="button" class="raised ts-tab active" data-kind="movie"><span>Films</span></button>
+  <button is="emby-button" type="button" class="raised ts-tab" data-kind="tv"><span>Séries</span></button>
+  <button is="emby-button" type="button" class="raised ts-tab" data-kind="anime"><span>Animes</span></button>
+</div>
+<div class="ts-row">
+  <div class="inputContainer"><input is="emby-input" id="tsQuery" type="search" label="Rechercher un titre (TMDB)" /></div>
+  <button is="emby-button" type="button" class="raised button-submit" id="tsSearch"><span>Rechercher</span></button>
+</div>
+<div id="tsSearchStatus" class="ts-status"></div>
+<div id="tsResults" class="ts-grid"></div>
+<button is="emby-button" type="button" class="raised" id="tsMore" style="display:none"><span>Plus de résultats</span></button>
+
+<h2>Titres ajoutés à la main</h2>
+<p class="ts-status">Cliquez sur un titre pour voir sa fiche, choisir sa source ou le retirer.</p>
+<div id="tsCatalogStatus" class="ts-status"></div>
+<div id="tsCatalog" class="ts-grid"></div>
+<button is="emby-button" type="button" class="raised" id="tsRefresh"><span>Chercher les nouveaux épisodes</span></button>
+
+<h2>Connexions</h2>
+<form id="tsForm">
+  <div class="inputContainer"><input is="emby-input" id="tmdbToken" type="password" label="TMDB — jeton de lecture (recommandé)" /><div class="fieldDescription">À créer gratuitement sur themoviedb.org → Paramètres → API.</div></div>
+  <div class="inputContainer"><input is="emby-input" id="tmdbKey" type="password" label="TMDB — clé API v3 (si pas de jeton)" /></div>
+  <div class="inputContainer"><input is="emby-input" id="prowlarrUrl" type="url" label="Adresse de Prowlarr" /></div>
+  <div class="inputContainer"><input is="emby-input" id="prowlarrKey" type="password" label="Clé API Prowlarr" /></div>
+  <div class="inputContainer"><input is="emby-input" id="torrUrl" type="url" label="Adresse de TorrServer" /></div>
+  <div class="inputContainer"><input is="emby-input" id="torrUser" type="text" label="TorrServer — utilisateur (facultatif)" /></div>
+  <div class="inputContainer"><input is="emby-input" id="torrPass" type="password" label="TorrServer — mot de passe (facultatif)" /></div>
+  <div class="inputContainer"><input is="emby-input" id="jfUrl" type="url" label="Adresse de Jellyfin vue par les lecteurs" /><div class="fieldDescription">Écrite dans les fichiers de la bibliothèque. Les appareils qui lisent doivent pouvoir l'atteindre (ex. http://serveur:8096).</div></div>
+
+  <h2>Catalogue</h2>
+  <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="autoCatalog" /><span>Remplir automatiquement la bibliothèque</span></label>
+  <div class="inputContainer"><input is="emby-input" id="autoPages" type="number" min="1" max="500" label="Pages TMDB par liste (20 titres par page)" /><div class="fieldDescription">5 ≈ 100 titres par liste (populaires, mieux notés, animes). Plus il y en a, plus le premier scan de Jellyfin est long.</div></div>
+
+  <div class="inputContainer"><input is="emby-input" id="autoMaxEp" type="number" min="0" label="Épisodes maximum par série (catalogue automatique)" /><div class="fieldDescription">Les séries plus longues sont limitées à leurs premières saisons (0 = sans limite). Vous pouvez toujours ajouter une série en entier à la main.</div></div>
+
+  <h2>Utilisateurs</h2>
+  <p class="fieldDescription">Réglages propres à chaque compte. <b>Découvrir</b> : accès au catalogue TMDB (page Découvrir, recherche TMDB, application) pour ouvrir des titres absents de la bibliothèque. <b>Profil personnalisé</b> : ses propres trackers et préférences de sources ; un champ vide reprend le réglage global ci-dessous. Une source choisie à la main ne vaut que pour le compte qui l'a choisie.</p>
+  <div id="tsUsers"></div>
+
+  <h2>Choix des sources</h2>
+  <div class="inputContainer"><input is="emby-input" id="prefTags" type="text" label="Mots-clés de langue préférés" /><div class="fieldDescription">Séparés par des virgules. Ex. multi,vff,vf,french pour du français.</div></div>
+  <div class="inputContainer"><input is="emby-input" id="avoidTags" type="text" label="Mots-clés à éviter" /></div>
+  <div class="inputContainer"><input is="emby-input" id="maxRes" type="number" min="480" max="2160" step="1" label="Résolution maximale (480, 720, 1080, 2160)" /></div>
+  <div class="inputContainer"><input is="emby-input" id="minSeeds" type="number" min="0" label="Sources minimum" /></div>
+  <div class="inputContainer"><input is="emby-input" id="maxMovieGb" type="number" min="1" label="Taille maximale d'un film (Go)" /></div>
+  <div class="inputContainer"><input is="emby-input" id="maxEpGb" type="number" min="1" label="Taille maximale d'un épisode (Go)" /></div>
+  <div class="inputContainer"><input is="emby-input" id="libRoot" type="text" label="Dossier de la bibliothèque (vide = automatique)" /></div>
+  <div class="ts-row">
+    <button is="emby-button" type="submit" class="raised button-submit block"><span>Enregistrer</span></button>
+    <button is="emby-button" type="button" class="raised" id="tsTest"><span>Tester les connexions</span></button>
+    <button is="emby-button" type="button" class="raised" id="tsSetup"><span>Créer les bibliothèques</span></button>
+  </div>
+  <div id="tsStatus" class="ts-status"></div>
+</form>
+</div></div>
+
+<div id="tsOverlay"><div class="ts-panel"><button class="ts-close" id="tsClose" type="button" aria-label="Fermer">×</button><div id="tsDetail"></div></div></div>
+<script type="text/javascript">
+(function () {
+  var PLUGIN = '655fbf1b-525b-4f82-bdeb-f27dd0bdd606';
+  var page = document.querySelector('#TorrServerPage');
+  function $(id) { return page.querySelector('#' + id); }
+  function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+  function api(method, path, body) {
+    var o = { type: method, url: ApiClient.getUrl('TorrServerPlugin/' + path), dataType: 'json' };
+    if (body !== undefined) { o.data = JSON.stringify(body); o.contentType = 'application/json'; }
+    return ApiClient.ajax(o);
+  }
+  function errText(e) {
+    if (e && e.json) { return e.json().then(function (j) { return j.error || j.message || JSON.stringify(j); }, function () { return 'Erreur'; }); }
+    return Promise.resolve((e && e.message) || 'Erreur');
+  }
+  var fields = { tmdbToken: 'TmdbReadAccessToken', tmdbKey: 'TmdbApiKey', prowlarrUrl: 'ProwlarrUrl', prowlarrKey: 'ProwlarrApiKey',
+    torrUrl: 'TorrServerUrl', torrUser: 'TorrServerUsername', torrPass: 'TorrServerPassword', jfUrl: 'JellyfinInternalUrl',
+    prefTags: 'PreferredTags', avoidTags: 'AvoidTags', libRoot: 'LibraryRoot' };
+  var numbers = { autoPages: 'AutoPages', autoMaxEp: 'AutoMaxEpisodes', maxRes: 'MaxResolution', minSeeds: 'MinSeeders', maxMovieGb: 'MaxMovieSizeGb', maxEpGb: 'MaxEpisodeSizeGb' };
+
+  function load() {
+    Dashboard.showLoadingMsg();
+    ApiClient.getPluginConfiguration(PLUGIN).then(function (c) {
+      Object.keys(fields).forEach(function (k) { $(k).value = c[fields[k]] || ''; });
+      Object.keys(numbers).forEach(function (k) { $(k).value = c[numbers[k]]; });
+      $('autoCatalog').checked = c.AutoCatalog !== false;
+      loadUsers(c);
+      Dashboard.hideLoadingMsg();
+      loadCatalog(); refreshStatus();
+      if (!state.items.length) loadBrowse(true);
+    });
+  }
+  function save() {
+    return ApiClient.getPluginConfiguration(PLUGIN).then(function (c) {
+      Object.keys(fields).forEach(function (k) { c[fields[k]] = $(k).value.trim(); });
+      Object.keys(numbers).forEach(function (k) { var v = parseInt($(k).value, 10); if (!isNaN(v)) c[numbers[k]] = v; });
+      c.AutoCatalog = $('autoCatalog').checked;
+      var prof = readUsers(); if (prof !== null) { c.UserProfiles = prof; c.UserIndexers = ''; }
+      return ApiClient.updatePluginConfiguration(PLUGIN, c);
+    });
+  }
+  // ---- profils par utilisateur
+  var usersReady = false;
+  function norm(id) { return String(id).replace(/-/g, '').toLowerCase(); }
+  function loadUsers(c) {
+    var map = {};
+    try { map = c.UserProfiles ? JSON.parse(c.UserProfiles) : {}; } catch (e) { map = {}; }
+    try { var old = c.UserIndexers ? JSON.parse(c.UserIndexers) : {}; Object.keys(old).forEach(function (k) { if (!map[k]) map[k] = { Custom: true, Indexers: old[k] }; }); } catch (e) { }
+    var profiles = {}; Object.keys(map).forEach(function (k) { profiles[norm(k)] = map[k]; });
+    Promise.all([ApiClient.getUsers(), api('GET', 'indexers').catch(function () { return []; })]).then(function (r) {
+      var users = r[0], idx = r[1];
+      var g = { tags: c.PreferredTags, avoid: c.AvoidTags, res: c.MaxResolution, seeds: c.MinSeeders, movie: c.MaxMovieSizeGb, ep: c.MaxEpisodeSizeGb, h264: c.PreferH264 };
+      var html = users.map(function (u) {
+        var p = profiles[norm(u.Id)] || {}, custom = !!p.Custom, all = !p.Indexers;
+        var val = function (v) { return v == null ? '' : esc(v); };
+        var resOpt = function (v) { return '<option value="' + v + '"' + ((p.MaxResolution || 0) === v ? ' selected' : '') + '>' + (v ? v + 'p' : 'Global (' + g.res + 'p)') + '</option>'; };
+        return '<div class="ts-user" data-user="' + norm(u.Id) + '">' +
+          '<div class="ts-user-head"><b>' + esc(u.Name) + (u.Policy && u.Policy.IsAdministrator ? ' <small style="opacity:.6;font-weight:normal">(administrateur)</small>' : '') + '</b>' +
+          '<label><input type="checkbox" class="uDiscover"' + (p.Discover === false ? '' : ' checked') + '> Découvrir (TMDB)</label>' +
+          '<label><input type="checkbox" class="uCustom"' + (custom ? ' checked' : '') + '> Profil de sources personnalisé</label></div>' +
+          '<div class="ts-prof"' + (custom ? '' : ' hidden') + '>' +
+            '<div class="wide"><span class="l">Trackers autorisés</span><div class="ts-idx">' +
+              '<label><input type="checkbox" class="uAll"' + (all ? ' checked' : '') + '> <b>Tous</b> (y compris ceux ajoutés plus tard)</label>' +
+              idx.map(function (i) { var on = all || p.Indexers.indexOf(i.name) >= 0; return '<label class="' + (i.enabled ? '' : 'off') + '"><input type="checkbox" class="uIdx" data-name="' + esc(i.name) + '"' + (on ? ' checked' : '') + (all ? ' disabled' : '') + '> ' + esc(i.name) + '</label>'; }).join('') +
+            '</div></div>' +
+            '<label class="wide" style="display:block"><span class="l">Langues préférées (mots-clés, virgules)</span><input type="text" class="uTags" value="' + val(p.PreferredTags) + '" placeholder="Global : ' + esc(g.tags) + '"></label>' +
+            '<label class="wide" style="display:block"><span class="l">Mots-clés à éviter</span><input type="text" class="uAvoid" value="' + val(p.AvoidTags) + '" placeholder="Global : ' + esc(g.avoid) + '"></label>' +
+            '<label style="display:block"><span class="l">Résolution maximale</span><select class="uRes">' + [0, 480, 720, 1080, 2160].map(resOpt).join('') + '</select></label>' +
+            '<label style="display:block"><span class="l">Préférer le H.264</span><select class="uH264"><option value=""' + (p.PreferH264 == null ? ' selected' : '') + '>Global (' + (g.h264 ? 'oui' : 'non') + ')</option><option value="1"' + (p.PreferH264 === true ? ' selected' : '') + '>Oui (lecture plus fluide)</option><option value="0"' + (p.PreferH264 === false ? ' selected' : '') + '>Non (HEVC accepté)</option></select></label>' +
+            '<label style="display:block"><span class="l">Sources minimum</span><input type="number" min="0" class="uSeeds" value="' + val(p.MinSeeders) + '" placeholder="Global : ' + g.seeds + '"></label>' +
+            '<label style="display:block"><span class="l">Taille max. film (Go)</span><input type="number" min="1" class="uMovie" value="' + val(p.MaxMovieSizeGb) + '" placeholder="Global : ' + g.movie + '"></label>' +
+            '<label style="display:block"><span class="l">Taille max. épisode (Go)</span><input type="number" min="1" class="uEp" value="' + val(p.MaxEpisodeSizeGb) + '" placeholder="Global : ' + g.ep + '"></label>' +
+          '</div></div>';
+      }).join('');
+      var box = $('tsUsers'); box.innerHTML = html; usersReady = true;
+      box.onchange = function (e) {
+        var card = e.target.closest('.ts-user'); if (!card) return;
+        if (e.target.classList.contains('uCustom')) card.querySelector('.ts-prof').hidden = !e.target.checked;
+        if (e.target.classList.contains('uAll'))
+          [].forEach.call(card.querySelectorAll('.uIdx'), function (x) { x.disabled = e.target.checked; if (e.target.checked) x.checked = true; });
+      };
+    });
+  }
+  function readUsers() {
+    if (!usersReady) return null;
+    var map = {};
+    var num = function (el) { var v = parseInt(el.value, 10); return isNaN(v) ? null : v; };
+    [].forEach.call($('tsUsers').querySelectorAll('.ts-user'), function (card) {
+      var p = { Discover: card.querySelector('.uDiscover').checked, Custom: card.querySelector('.uCustom').checked };
+      if (p.Custom) {
+        p.Indexers = card.querySelector('.uAll').checked ? null : [].filter.call(card.querySelectorAll('.uIdx'), function (x) { return x.checked; }).map(function (x) { return x.getAttribute('data-name'); });
+        var t = card.querySelector('.uTags').value.trim(), a = card.querySelector('.uAvoid').value.trim();
+        p.PreferredTags = t || null; p.AvoidTags = a || null;
+        p.MaxResolution = parseInt(card.querySelector('.uRes').value, 10) || null;
+        var h = card.querySelector('.uH264').value; p.PreferH264 = h === '' ? null : h === '1';
+        p.MinSeeders = num(card.querySelector('.uSeeds')); p.MaxMovieSizeGb = num(card.querySelector('.uMovie')); p.MaxEpisodeSizeGb = num(card.querySelector('.uEp'));
+      }
+      if (p.Custom || !p.Discover) map[card.getAttribute('data-user')] = p;
+    });
+    return Object.keys(map).length ? JSON.stringify(map) : '';
+  }
+
+  function poster(p) { return p ? '<img loading="lazy" src="https://image.tmdb.org/t/p/w342' + esc(p) + '">' : '<div class="ts-noimg">🎬</div>'; }
+
+  var state = { kind: 'movie', page: 1, totalPages: 1, query: '', items: [] };
+  function card(x, i) {
+    return '<div class="ts-card click" data-i="' + i + '">' + poster(x.poster) +
+      '<div class="ts-meta"><b>' + esc(x.title) + '</b><small>' + (x.type === 'tv' ? 'Série' : 'Film') + ' · ' + esc(x.year) + (x.inLibrary ? ' · ✓ ajouté' : '') + '</small></div></div>';
+  }
+  function showGrid(append) {
+    var box = $('tsResults');
+    var html = state.items.map(card).join('');
+    box.innerHTML = html;
+    box.querySelectorAll('.ts-card').forEach(function (c) {
+      c.addEventListener('click', function () { var x = state.items[parseInt(c.getAttribute('data-i'), 10)]; openDetail(x.type, x.id); });
+    });
+    $('tsMore').style.display = (!state.query && state.page < state.totalPages) ? '' : 'none';
+  }
+  function loadBrowse(reset) {
+    if (reset) { state.page = 1; state.items = []; }
+    $('tsSearchStatus').textContent = 'Chargement…';
+    api('GET', 'browse?kind=' + state.kind + '&page=' + state.page).then(function (r) {
+      state.items = state.items.concat(r.items); state.totalPages = r.totalPages;
+      $('tsSearchStatus').textContent = state.items.length ? '' : 'Rien à afficher.'; showGrid();
+    }, function (e) { errText(e).then(function (t) { $('tsSearchStatus').textContent = 'Échec : ' + t + ' (clé TMDB configurée ?)'; }); });
+  }
+  function doSearch() {
+    var q = $('tsQuery').value.trim();
+    if (!q) { state.query = ''; loadBrowse(true); return; }
+    state.query = q; $('tsSearchStatus').textContent = 'Recherche…';
+    api('GET', 'search?q=' + encodeURIComponent(q)).then(function (r) {
+      state.items = r; $('tsSearchStatus').textContent = r.length ? '' : 'Aucun résultat.'; showGrid();
+    }, function (e) { errText(e).then(function (t) { $('tsSearchStatus').textContent = 'Échec : ' + t + ' (clé TMDB configurée ?)'; }); });
+  }
+  page.querySelectorAll('.ts-tab').forEach(function (b) {
+    b.addEventListener('click', function () {
+      page.querySelectorAll('.ts-tab').forEach(function (o) { o.classList.remove('active'); }); b.classList.add('active');
+      state.kind = b.getAttribute('data-kind'); state.query = ''; $('tsQuery').value = ''; loadBrowse(true);
+    });
+  });
+  var pollTimer = null;
+  function refreshStatus() {
+    api('GET', 'status').then(function (r) {
+      var t = r.movies + ' films et ' + r.shows + ' séries dans la bibliothèque (dont ' + r.manual + ' ajoutés à la main).';
+      if (r.syncing) t += '\n⏳ ' + (r.message || 'Mise à jour…') + (r.total ? ' ' + r.done + '/' + r.total : '');
+      else if (r.message) t += '\n' + r.message;
+      $('tsAutoStatus').textContent = t;
+      $('tsSync').disabled = r.syncing;
+      clearTimeout(pollTimer);
+      if (r.syncing && overlay.style.display !== 'block') pollTimer = setTimeout(refreshStatus, 3000);
+    }, function () { $('tsAutoStatus').textContent = ''; });
+  }
+  $('tsSync').addEventListener('click', function () { api('POST', 'sync').then(function () { setTimeout(refreshStatus, 800); }); });
+  $('tsMore').addEventListener('click', function () { state.page++; loadBrowse(false); });
+
+  // ---------- fiche détaillée ----------
+  var overlay = $('tsOverlay'), detailBox = $('tsDetail');
+  function closeDetail() { overlay.style.display = 'none'; detailBox.innerHTML = ''; document.body.style.overflow = ''; loadCatalog(); }
+  $('tsClose').addEventListener('click', closeDetail);
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) closeDetail(); });
+  function fmtSize(b) { return b ? (b / 1073741824).toFixed(2).replace('.', ',') + ' Go' : '?'; }
+
+  function openDetail(type, id) {
+    overlay.style.display = 'block'; document.body.style.overflow = 'hidden'; overlay.scrollTop = 0;
+    detailBox.innerHTML = '<p>Chargement…</p>';
+    api('GET', 'detail/' + type + '/' + id).then(function (d) { renderDetail(d); },
+      function (e) { errText(e).then(function (t) { detailBox.innerHTML = '<p>Échec : ' + esc(t) + '</p>'; }); });
+  }
+  function renderDetail(d) {
+    var year = (d.date || '').slice(0, 4);
+    var meta = [d.type === 'tv' ? 'Série' : 'Film', year, d.runtime ? d.runtime + ' min' : '', (d.genres || []).join(', ')].filter(Boolean).join(' · ');
+    var html = '<div class="ts-head">' + (d.poster ? '<img src="https://image.tmdb.org/t/p/w342' + esc(d.poster) + '">' : '') +
+      '<div class="ts-info"><h2>' + esc(d.title) + '</h2><div class="ts-sub">' + esc(meta) + '</div><p>' + esc(d.overview || 'Pas de résumé.') + '</p>' +
+      '<div class="ts-actions"><button is="emby-button" class="raised button-submit" id="tsAct"><span>' + (d.inLibrary ? 'Retirer de la bibliothèque' : 'Ajouter à la bibliothèque') + '</span></button>' +
+      '<button is="emby-button" class="raised" id="tsSrcBtn"><span>Choisir la source</span></button></div><div id="tsActMsg" class="ts-status"></div></div></div>';
+    if (d.cast && d.cast.length) html += '<h3>Acteurs</h3><div class="ts-strip">' + d.cast.map(function (a) {
+      return '<div class="it person">' + (a.photo ? '<img loading="lazy" src="https://image.tmdb.org/t/p/w185' + esc(a.photo) + '">' : '<div class="ph"></div>') + '<b>' + esc(a.name) + '</b><br><small>' + esc(a.character) + '</small></div>'; }).join('') + '</div>';
+    if (d.recommendations && d.recommendations.length) html += '<h3>Recommandations</h3><div class="ts-strip">' + d.recommendations.map(function (r, i) {
+      return '<div class="it rec" data-rec="' + i + '">' + poster(r.poster).replace('<img', '<img') + '<b>' + esc(r.title) + '</b><br><small>' + esc(r.year) + '</small></div>'; }).join('') + '</div>';
+    html += '<div id="tsSources"></div>';
+    detailBox.innerHTML = html;
+    detailBox.querySelectorAll('[data-rec]').forEach(function (el) {
+      el.addEventListener('click', function () { var r = d.recommendations[parseInt(el.getAttribute('data-rec'), 10)]; openDetail(r.type, r.id); });
+    });
+    var act = $('tsAct');
+    act.addEventListener('click', function () {
+      act.disabled = true; var span = act.querySelector('span');
+      if (d.inLibrary) {
+        span.textContent = 'Retrait…';
+        api('DELETE', 'catalog/' + d.type + '/' + d.id).then(function () { d.inLibrary = false; act.disabled = false; span.textContent = 'Ajouter à la bibliothèque'; });
+      } else {
+        span.textContent = 'Ajout…';
+        api('POST', 'add', { Type: d.type, Id: d.id }).then(function () { d.inLibrary = true; act.disabled = false; span.textContent = 'Retirer de la bibliothèque'; $('tsActMsg').textContent = 'Ajouté : il apparaît dans la bibliothèque Jellyfin dans quelques secondes.'; },
+          function (e) { errText(e).then(function (t) { act.disabled = false; span.textContent = 'Ajouter à la bibliothèque'; $('tsActMsg').textContent = 'Échec : ' + t; }); });
+      }
+    });
+    $('tsSrcBtn').addEventListener('click', function () { openSources(d); });
+  }
+
+  // ---------- choix de la source ----------
+  function openSources(d) {
+    var box = $('tsSources');
+    var ctl = '';
+    if (d.type === 'tv') {
+      ctl = '<div class="ts-row" style="margin:.5em 0"><label>Saison <select id="tsSeason">' + (d.seasons || []).map(function (s) { return '<option value="' + s.number + '">' + s.number + '</option>'; }).join('') +
+        '</select></label><label>Épisode <input id="tsEpisode" type="number" min="1" value="1" style="width:5em"></label><button is="emby-button" class="raised" id="tsReload"><span>Actualiser</span></button></div>';
+    }
+    box.innerHTML = '<h3>Sources (recherche en cache 4 h)</h3>' + ctl + '<div id="tsSrcList">Recherche des sources…</div>';
+    function load() {
+      var q = d.type === 'tv' ? '?season=' + $('tsSeason').value + '&episode=' + ($('tsEpisode').value || 1) : '';
+      $('tsSrcList').textContent = 'Recherche des sources…';
+      api('GET', 'sources/' + d.type + '/' + d.id + q).then(function (r) {
+        if (!r.items.length) { $('tsSrcList').innerHTML = '<p>Aucune source trouvée (' + r.total + ' résultats bruts). Vérifiez les indexeurs de Prowlarr.</p>'; return; }
+        var head = r.current ? '<p>Source actuelle : <b>' + esc(r.current.release) + '</b>' + (r.current.pinned ? ' (choisie par vous)' : ' (automatique)') + '</p>' : '<p>Sans choix, la meilleure source est prise automatiquement (la première ci-dessous).</p>';
+        $('tsSrcList').innerHTML = head + '<div class="scroll-x"><table><thead><tr><th>Source</th><th>Sources</th><th>Taille</th><th>Indexeur</th><th></th></tr></thead><tbody>' +
+          r.items.map(function (x, i) {
+            return '<tr><td>' + esc(x.title) + (x.pack ? '<span class="badge">pack</span>' : '') + (i === 0 && !r.current ? '<span class="badge">auto</span>' : '') + '</td><td>' + x.seeders + '</td><td>' + fmtSize(x.size) + '</td><td>' + esc(x.indexer) + '</td>' +
+              '<td><button is="emby-button" class="raised' + (x.current ? '' : ' button-submit') + '" data-use="' + i + '"' + (x.current ? ' disabled' : '') + '><span>' + (x.current ? 'Utilisée ✓' : 'Utiliser') + '</span></button></td></tr>'; }).join('') +
+          '</tbody></table></div><div class="ts-actions"><button is="emby-button" class="raised" id="tsUnpin"><span>Revenir au choix automatique</span></button></div>';
+        $('tsSrcList').querySelectorAll('[data-use]').forEach(function (b) {
+          b.addEventListener('click', function () {
+            var x = r.items[parseInt(b.getAttribute('data-use'), 10)];
+            b.disabled = true;
+            api('POST', 'pin', { Type: d.type, Id: d.id, Season: d.type === 'tv' ? parseInt($('tsSeason').value, 10) : 0, Episode: d.type === 'tv' ? parseInt($('tsEpisode').value || '1', 10) : 0, Link: x.link, Title: x.title }).then(load);
+          });
+        });
+        $('tsUnpin').addEventListener('click', function () {
+          var q2 = d.type === 'tv' ? '?season=' + $('tsSeason').value + '&episode=' + ($('tsEpisode').value || 1) : '';
+          api('DELETE', 'pin/' + d.type + '/' + d.id + q2).then(load);
+        });
+      }, function (e) { errText(e).then(function (t) { $('tsSrcList').textContent = 'Échec : ' + t; }); });
+    }
+    if (d.type === 'tv') { $('tsReload').addEventListener('click', load); $('tsSeason').addEventListener('change', load); }
+    load();
+    box.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function loadCatalog() {
+    api('GET', 'catalog').then(function (items) {
+      $('tsCatalogStatus').textContent = items.length ? '' : 'Aucun titre pour le moment.';
+      $('tsCatalog').innerHTML = items.map(function (x, i) {
+        return '<div class="ts-card click" data-c="' + i + '">' + poster(x.Poster) + '<div class="ts-meta"><b>' + esc(x.Title) + '</b><small>' + (x.Type === 'tv' ? x.Episodes + ' épisodes' : 'Film') + ' · ' + esc(x.Year) + '</small></div></div>';
+      }).join('');
+      page.querySelectorAll('[data-c]').forEach(function (c) {
+        c.addEventListener('click', function () { var x = items[parseInt(c.getAttribute('data-c'), 10)]; openDetail(x.Type, x.TmdbId); });
+      });
+    });
+  }
+
+  $('tsSearch').addEventListener('click', doSearch);
+  $('tsQuery').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } });
+  $('tsRefresh').addEventListener('click', function () {
+    $('tsCatalogStatus').textContent = 'Recherche des nouveaux épisodes…';
+    api('POST', 'refresh').then(function (r) { $('tsCatalogStatus').textContent = r.added + ' nouvel(s) épisode(s).'; loadCatalog(); });
+  });
+  $('tsTest').addEventListener('click', function () {
+    $('tsStatus').textContent = 'Test en cours…';
+    save().then(function () { return api('POST', 'test'); }).then(function (r) {
+      $('tsStatus').textContent = Object.keys(r).map(function (k) { return k + ' : ' + r[k]; }).join('\n');
+    }, function (e) { errText(e).then(function (t) { $('tsStatus').textContent = 'Échec : ' + t; }); });
+  });
+  $('tsSetup').addEventListener('click', function () {
+    save().then(function () { return api('POST', 'setup'); }).then(function (r) { $('tsStatus').textContent = r.message + '\nDossier : ' + r.root; },
+      function (e) { errText(e).then(function (t) { $('tsStatus').textContent = 'Échec : ' + t; }); });
+  });
+  $('tsForm').addEventListener('submit', function (e) {
+    e.preventDefault(); Dashboard.showLoadingMsg();
+    save().then(function (r) { api('POST', 'sync').then(function () { setTimeout(refreshStatus, 800); }); Dashboard.processPluginConfigurationUpdateResult(r); });
+  });
+  page.addEventListener('pageshow', load);
+})();
+</script>
+</div>
+</body>
+</html>
