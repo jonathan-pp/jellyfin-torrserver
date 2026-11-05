@@ -14,7 +14,7 @@ namespace Jellyfin.Plugin.TorrServer;
 /// Sans durée, le lecteur affiche une barre de progression fausse (quelques secondes).
 /// Source : une autre version déjà analysée du même titre, sinon la durée TMDB.
 /// </summary>
-public sealed class RuntimeFiller(ILibraryManager library, Clients clients, ILogger<RuntimeFiller> log) : IHostedService
+public sealed class RuntimeFiller(ILibraryManager library, Clients clients, ProbeService probe, ILogger<RuntimeFiller> log) : IHostedService
 {
     private readonly Channel<Guid> _queue = Channel.CreateUnbounded<Guid>();
     private readonly ConcurrentDictionary<Guid, byte> _pending = new();
@@ -27,8 +27,9 @@ public sealed class RuntimeFiller(ILibraryManager library, Clients clients, ILog
         _stop = new CancellationTokenSource();
         library.ItemAdded += OnItem;
         library.ItemUpdated += OnItem;
+        probe.Analyzed += OnAnalyzed;
         _ = Task.Run(() => Loop(_stop.Token));
-        // rattrapage des versions déjà créées
+        // rattrapage : au démarrage, puis de temps en temps (parcours coûteux : une requête par titre)
         _ = Task.Run(async () =>
         {
             try
@@ -47,7 +48,7 @@ public sealed class RuntimeFiller(ILibraryManager library, Clients clients, ILog
                             if (alt.Id != v.Id && library.GetItemById(alt.Id) is { } a2 && Needs(a2)) { Enqueue(a2.Id); n++; }
                 }
                 if (n > 0) log.LogInformation("Durées : {N} versions sans durée à compléter", n);
-                await Task.Delay(TimeSpan.FromMinutes(3), _stop.Token);
+                await Task.Delay(TimeSpan.FromHours(6), _stop.Token);
               }
             }
             catch (Exception ex) when (ex is not OperationCanceledException) { log.LogWarning("Durées (rattrapage) : {M}", ex.Message); }
@@ -59,6 +60,7 @@ public sealed class RuntimeFiller(ILibraryManager library, Clients clients, ILog
     {
         library.ItemAdded -= OnItem;
         library.ItemUpdated -= OnItem;
+        probe.Analyzed -= OnAnalyzed;
         _stop?.Cancel();
         return Task.CompletedTask;
     }
@@ -68,14 +70,34 @@ public sealed class RuntimeFiller(ILibraryManager library, Clients clients, ILog
 
     private void OnItem(object? sender, ItemChangeEventArgs e)
     {
+        // durée écrasée par une actualisation de Jellyfin : corrigée tout de suite en mémoire (le lecteur la lit juste après), puis enregistrée
+        if (probe.Restore(e.Item))
+        {
+            if (library.GetItemById(e.Item.Id) is { } cached && !ReferenceEquals(cached, e.Item)) probe.Restore(cached);
+            if (_pending.TryAdd(e.Item.Id, 0)) _queue.Writer.TryWrite(e.Item.Id);
+            return;
+        }
         if (Needs(e.Item)) Enqueue(e.Item.Id);
+    }
+
+    /// <summary>Une version vient d'être analysée : ses sœurs sans durée peuvent reprendre la sienne.</summary>
+    private void OnAnalyzed(Guid id)
+    {
+        try
+        {
+            if (library.GetItemById(id) is not Video v) return;
+            var primary = v.PrimaryVersionId is { } pid && pid != Guid.Empty ? library.GetItemById(pid) as Video : v;
+            foreach (var x in primary?.GetAllVersions() ?? [])
+                if (library.GetItemById(x.Id) is { } sibling && Needs(sibling)) { _tried.TryRemove(sibling.Id, out _); Enqueue(sibling.Id); }
+        }
+        catch (Exception ex) { log.LogDebug("Durées après analyse : {M}", ex.Message); }
     }
 
     private readonly ConcurrentDictionary<Guid, DateTime> _tried = new();
 
     private void Enqueue(Guid id)
     {
-        if (_tried.TryGetValue(id, out var at) && DateTime.UtcNow - at < TimeSpan.FromMinutes(2)) return;   // pas de boucle
+        if (_tried.TryGetValue(id, out var at) && DateTime.UtcNow - at < TimeSpan.FromMinutes(30)) return;   // pas de boucle
         if (_pending.TryAdd(id, 0)) _queue.Writer.TryWrite(id);
     }
 
@@ -97,8 +119,15 @@ public sealed class RuntimeFiller(ILibraryManager library, Clients clients, ILog
 
     private async Task Fill(Guid id, CancellationToken ct)
     {
+        if (library.GetItemById(id) is not Video item) return;
+        if (probe.RealTicks(id) is { } real)
+        {
+            item.RunTimeTicks = real;
+            await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, ct);
+            return;
+        }
         _tried[id] = DateTime.UtcNow;
-        if (library.GetItemById(id) is not Video item || !Needs(item)) return;
+        if (!Needs(item)) return;
         var ticks = Sibling(item) ?? await FromTmdb(item, ct);
         if (ticks is not > 0) { log.LogDebug("Durée inconnue pour {P}", item.Path); return; }
         item = library.GetItemById(id) as Video ?? item;

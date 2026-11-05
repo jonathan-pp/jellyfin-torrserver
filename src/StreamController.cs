@@ -21,31 +21,6 @@ public sealed class StreamController(Resolver resolver, Clients clients, SourceS
     [HttpHead("tv/{id:int}/{season:int}/{episode:int}")]
     public Task Episode(string key, int id, int season, int episode, [FromQuery] string? sid, CancellationToken ct) => Serve(key, new MediaRef("tv", id, season, episode), sid, ct);
 
-    /// <summary>Flux direct d'un fichier connu (chaîne TMDB).</summary>
-    [HttpGet("h/{hash}/{file:int}")]
-    [HttpHead("h/{hash}/{file:int}")]
-    public async Task Hash(string key, string hash, int file, CancellationToken ct)
-    {
-        if (!KeyOk(key) || hash.Length is < 32 or > 64 || hash.Any(c => !Uri.IsHexDigit(c))) { Response.StatusCode = 404; return; }
-        try { await Proxy(clients.StreamUrl(hash, file, "video"), ct); }
-        catch (OperationCanceledException) { }
-        catch (Exception ex) { log.LogWarning("Flux {H} : {M}", hash, ex.Message); if (!Response.HasStarted) await Fail(502, ex.Message); }
-    }
-
-    private async Task Proxy(string url, CancellationToken ct)
-    {
-        using var request = clients.Torr(HttpMethod.Get, url);
-        if (HttpMethods.IsHead(Request.Method)) request.Method = HttpMethod.Head;
-        foreach (var h in new[] { "Range", "If-Range" })
-            if (Request.Headers.TryGetValue(h, out var v)) request.Headers.TryAddWithoutValidation(h, v.ToArray());
-        using var upstream = await clients.StreamClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        Response.StatusCode = (int)upstream.StatusCode;
-        foreach (var h in new[] { "Accept-Ranges", "Content-Range", "Content-Length", "Content-Type", "Last-Modified", "ETag" })
-            if (upstream.Headers.TryGetValues(h, out var vals) || upstream.Content.Headers.TryGetValues(h, out vals))
-                Response.Headers[h] = string.Join(", ", vals);
-        if (!HttpMethods.IsHead(Request.Method)) await upstream.Content.CopyToAsync(Response.Body, ct);
-    }
-
     private static bool KeyOk(string given)
     {
         var expected = Clients.Config.StreamKey;
@@ -59,43 +34,49 @@ public sealed class StreamController(Resolver resolver, Clients clients, SourceS
         if (!HttpMethods.IsHead(Request.Method)) await Response.WriteAsync(message);
     }
 
-    /// <summary>ffprobe lancé par Jellyfin sur une version dont le torrent n'est pas encore chargé ?</summary>
-    private async Task<bool> UnwantedProbe(MediaRef media, string? sid)
+    /// <summary>
+    /// ffprobe lancé par Jellyfin lui-même ? Il actualise toutes les versions d'un .strm à chaque lecture : les laisser passer
+    /// chargerait un torrent par version et ferait attendre le lecteur. Le plugin fait sa propre analyse (probe=1) de la version lue.
+    /// </summary>
+    private bool UnwantedProbe()
     {
         var c = HttpContext.Connection;
         if (c.RemoteIpAddress is null || !(System.Net.IPAddress.IsLoopback(c.RemoteIpAddress) || c.RemoteIpAddress.Equals(c.LocalIpAddress))) return false;
-        if (!PeerProcess.IsFfprobe(c.RemoteIpAddress, c.RemotePort)) return false;
-        var known = await resolver.Peek(media);
-        if (known is not { Hash.Length: > 0 }) return true;
-        if (sid is null) return false;
-        var release = store.Get(sid);
-        return release is null || known.Link != release.Link;
+        return PeerProcess.IsFfprobe(c.RemoteIpAddress, c.RemotePort);
     }
+
+    /// <summary>Aucune donnée après ce délai au début d'un fichier : la source est morte, on passe à la suivante.</summary>
+    private static readonly TimeSpan FirstByteTimeout = TimeSpan.FromSeconds(45);
 
     private async Task Serve(string key, MediaRef media, string? sid, CancellationToken ct)
     {
         if (!KeyOk(key)) { Response.StatusCode = 404; return; }
-        if (Request.Query["probe"] != "1" && await UnwantedProbe(media, sid))
+        var analysis = Request.Query["probe"] == "1";
+        if (!analysis && UnwantedProbe())
         {
-            log.LogDebug("{K} : analyse automatique de Jellyfin ignorée (source pas encore chargée)", media.Key);
-            await Fail(503, "Analyse ignorée : la source sera chargée à la lecture.");
+            await Fail(503, "Analyse automatique ignorée.");
             return;
         }
-        log.LogDebug("FLUX {K} sid={S} {M} range={R} UA={U}", media.Key, sid ?? "auto", Request.Method, Request.Headers.Range.ToString(), Request.Headers.UserAgent.ToString());
         var user = tracker.UserFor(media.Key);
         var prefs = Access.Prefs(user);
-        var scope = "";
-        for (var attempt = 0; attempt < 2; attempt++)
+        var release = sid is null ? null : store.Get(sid);
+        if (release is not null && (!Access.Ok(prefs.Indexers, release.Indexer) || resolver.IsDead(release.Title)))
         {
+            log.LogInformation("{K} : source {I} écartée (non autorisée ou muette), choix automatique", media.Key, release.Indexer);
+            release = null;
+        }
+        // Changer de torrent n'est possible qu'au début du fichier : au milieu, les positions ne correspondraient plus.
+        var range = Request.Headers.Range.ToString();
+        var fromStart = !HttpMethods.IsHead(Request.Method) && (range.Length == 0 || range.StartsWith("bytes=0-", StringComparison.Ordinal));
+
+        const int Attempts = 4;
+        for (var attempt = 0; attempt < Attempts; attempt++)
+        {
+            var last = attempt == Attempts - 1;
             Entry entry;
+            string scope;
             try
             {
-                var release = sid is null ? null : store.Get(sid);
-                if (release is not null && !Access.Ok(prefs.Indexers, release.Indexer))
-                {
-                    log.LogInformation("{K} : source {I} non autorisée pour cet utilisateur, choix parmi ses trackers", media.Key, release.Indexer);
-                    release = null;
-                }
                 if (release is null)
                 {
                     scope = (await resolver.ScopeFor(media, user)).Scope;
@@ -105,13 +86,20 @@ public sealed class StreamController(Resolver resolver, Clients clients, SourceS
                 {
                     // version choisie dans le menu : mémorisée pour cet utilisateur seulement
                     scope = Access.UserScope(user);
-                    entry = await resolver.ResolveWith(media, release, ct, scope: scope);
+                    entry = await resolver.ResolveWith(media, release, ct, scope);
                 }
-                versions.Played(media, release is null ? null : sid);
             }
-            catch (OperationCanceledException) { return; }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
             catch (KeyNotFoundException ex) { await Fail(404, ex.Message); return; }
+            catch (Exception ex) when (release is not null)
+            {
+                log.LogWarning("{Key} : source choisie inutilisable ({M}), choix automatique", media.Key, ex.Message);
+                release = null;
+                continue;
+            }
             catch (Exception ex) { log.LogWarning("{Key} : {M}", media.Key, ex.Message); await Fail(502, ex.Message); return; }
+
+            if (!analysis && attempt == 0) versions.Played(media, user);
 
             try
             {
@@ -120,24 +108,49 @@ public sealed class StreamController(Resolver resolver, Clients clients, SourceS
                 foreach (var h in new[] { "Range", "If-Range" })
                     if (Request.Headers.TryGetValue(h, out var v)) request.Headers.TryAddWithoutValidation(h, v.ToArray());
                 using var upstream = await clients.StreamClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-                if ((int)upstream.StatusCode >= 400 && attempt == 0)
+                if ((int)upstream.StatusCode >= 400 && !last)
                 {
                     log.LogInformation("{Key} : TorrServer répond {C}, nouvelle résolution", media.Key, (int)upstream.StatusCode);
-                    await resolver.Invalidate(media.Key + scope, ban: false);
+                    await resolver.Invalidate(media, scope, dead: false);
+                    if (release is null) versions.SourceChanged(media);
                     continue;
                 }
+
+                await using var body = await upstream.Content.ReadAsStreamAsync(ct);
+                var buffer = new byte[81920];
+                var read = 0;
+                if (!HttpMethods.IsHead(Request.Method))
+                {
+                    using var first = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    if (fromStart && !last) first.CancelAfter(FirstByteTimeout);
+                    try { read = await body.ReadAsync(buffer, first.Token); }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    {
+                        log.LogWarning("{Key} : aucune donnée de « {R} » après {S} s, source suivante", media.Key, entry.Release, (int)FirstByteTimeout.TotalSeconds);
+                        await resolver.Invalidate(media, scope, dead: true);
+                        if (release is null) versions.SourceChanged(media);
+                        release = null;
+                        continue;
+                    }
+                }
+
                 Response.StatusCode = (int)upstream.StatusCode;
                 foreach (var h in new[] { "Accept-Ranges", "Content-Range", "Content-Length", "Content-Type", "Last-Modified", "ETag" })
                     if (upstream.Headers.TryGetValues(h, out var vals) || upstream.Content.Headers.TryGetValues(h, out vals))
                         Response.Headers[h] = string.Join(", ", vals);
-                if (!HttpMethods.IsHead(Request.Method)) await upstream.Content.CopyToAsync(Response.Body, ct);
+                if (read > 0)
+                {
+                    await Response.Body.WriteAsync(buffer.AsMemory(0, read), ct);
+                    await body.CopyToAsync(Response.Body, ct);
+                }
                 return;
             }
             catch (OperationCanceledException) { return; }
-            catch (HttpRequestException ex) when (attempt == 0)
+            catch (HttpRequestException ex) when (!last)
             {
                 log.LogWarning("{Key} : {M}", media.Key, ex.Message);
-                await resolver.Invalidate(media.Key + scope, ban: false);
+                await resolver.Invalidate(media, scope, dead: false);
+                if (release is null) versions.SourceChanged(media);
             }
             catch (Exception ex) { log.LogWarning("{Key} : {M}", media.Key, ex.Message); if (!Response.HasStarted) await Fail(502, ex.Message); return; }
         }

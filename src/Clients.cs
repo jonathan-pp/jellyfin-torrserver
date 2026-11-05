@@ -43,16 +43,42 @@ public sealed class Clients(IHttpClientFactory http)
         return t.Length > 0 ? t : (Environment.GetEnvironmentVariable("TMDB_API_LECTURE") ?? Environment.GetEnvironmentVariable("TMBD_API_LECTURE") ?? "").Trim();
     }
 
-    public Task<JsonElement> Tmdb(string path, CancellationToken ct, string? language = null)
+    // Réponses TMDB gardées en mémoire 1 h : page Découvrir instantanée, moins d'appels à chaque recherche de sources.
+    private static readonly TimeSpan TmdbTtl = TimeSpan.FromHours(1);
+    private const int TmdbMaxEntries = 4000;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime At, JsonElement Json)> _tmdb = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<JsonElement>>> _tmdbInflight = new();
+
+    public async Task<JsonElement> Tmdb(string path, CancellationToken ct, string? language = null)
+    {
+        var url = TmdbUrl(path, language);
+        if (_tmdb.TryGetValue(url, out var hit) && DateTime.UtcNow - hit.At < TmdbTtl) return hit.Json;
+        var lazy = _tmdbInflight.GetOrAdd(url, u => new Lazy<Task<JsonElement>>(async () =>
+        {
+            var json = await Send(TmdbRequest(u), CancellationToken.None);   // partagée : ne dépend pas d'un seul appelant
+            if (_tmdb.Count >= TmdbMaxEntries) _tmdb.Clear();
+            _tmdb[u] = (DateTime.UtcNow, json);
+            return json;
+        }));
+        try { return await lazy.Value.WaitAsync(ct); }
+        finally { if (lazy.Value.IsCompleted) _tmdbInflight.TryRemove(url, out _); }
+    }
+
+    private static string TmdbUrl(string path, string? language)
     {
         var token = TmdbToken();
         var key = Config.TmdbApiKey.Trim();
         if (token.Length == 0 && key.Length == 0) throw new InvalidOperationException("Aucune clé TMDB configurée.");
         var url = (Environment.GetEnvironmentVariable("TMDB_BASE_URL") ?? "https://api.themoviedb.org/3").TrimEnd('/') + "/" + path + (path.Contains('?') ? "&" : "?") + "language=" + (language ?? Config.MetadataLanguage);
-        if (token.Length == 0) url += "&api_key=" + Uri.EscapeDataString(key);
+        return token.Length == 0 ? url + "&api_key=" + Uri.EscapeDataString(key) : url;
+    }
+
+    private static HttpRequestMessage TmdbRequest(string url)
+    {
         var request = new HttpRequestMessage(HttpMethod.Get, url);
+        var token = TmdbToken();
         if (token.Length > 0) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        return Send(request, ct);
+        return request;
     }
 
     // ---------- Prowlarr ----------
@@ -82,14 +108,25 @@ public sealed class Clients(IHttpClientFactory http)
         }
     }
 
+    private static int _savePending;
+
+    /// <summary>Écrit le cache au plus une fois toutes les 10 s (le fichier fait plusieurs Mo).</summary>
     private static void SaveCache()
     {
-        try
+        if (Interlocked.Exchange(ref _savePending, 1) == 1) return;
+        _ = Task.Run(async () =>
         {
-            var keep = SearchCache.Where(x => DateTime.UtcNow - x.Value.At < SearchTtl).ToDictionary(x => x.Key, x => new CachedSearch(x.Value.At, x.Value.Items));
-            lock (CacheLock) File.WriteAllText(CachePath, JsonSerializer.Serialize(keep));
-        }
-        catch { }
+            await Task.Delay(TimeSpan.FromSeconds(10));
+            Interlocked.Exchange(ref _savePending, 0);
+            try
+            {
+                foreach (var old in SearchCache.Where(x => DateTime.UtcNow - x.Value.At >= SearchTtl).Select(x => x.Key).ToList()) SearchCache.TryRemove(old, out _);
+                var keep = SearchCache.ToDictionary(x => x.Key, x => new CachedSearch(x.Value.At, x.Value.Items));
+                var json = JsonSerializer.Serialize(keep);
+                lock (CacheLock) { File.WriteAllText(CachePath + ".tmp", json); File.Move(CachePath + ".tmp", CachePath, true); }
+            }
+            catch { /* ce n'est qu'un cache */ }
+        });
     }
 
     public sealed record CachedSearch(DateTime At, List<Release> Items);
@@ -136,22 +173,9 @@ public sealed class Clients(IHttpClientFactory http)
 
     private async Task<List<Release>> SearchUncached(string query, int category, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(Config.ProwlarrApiKey)) throw new InvalidOperationException("Clé API Prowlarr manquante.");
-        async Task<List<Release>> Run(string q)
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Get, Endpoint(Config.ProwlarrUrl, "api/v1/search?type=search&limit=100&query=" + Uri.EscapeDataString(query) + q));
-            request.Headers.Add("X-Api-Key", Config.ProwlarrApiKey);
-            var json = await Send(request, ct);
-            if (json.ValueKind != JsonValueKind.Array) throw new InvalidOperationException("Réponse Prowlarr invalide.");
-            return json.EnumerateArray().Where(x => Text(x, "protocol").Equals("torrent", StringComparison.OrdinalIgnoreCase)).Select(x =>
-            {
-                var link = Text(x, "magnetUrl");
-                if (link.Length == 0) link = Text(x, "downloadUrl");
-                return new Release(Text(x, "title"), link, Int(x, "seeders"), Long(x, "size"), Text(x, "indexer"));
-            }).Where(x => x.Link.Length > 0 && x.Title.Length > 0).ToList();
-        }
-        var results = await Run("&categories=" + category);
-        return results.Count > 0 ? results : await Run("");
+        var q = "type=search&limit=100&query=" + Uri.EscapeDataString(query);
+        var results = await Prowlarr(q + "&categories=" + category, ct);
+        return results.Count > 0 ? results : await Prowlarr(q, ct);
     }
 
     // ---------- TorrServer ----------
@@ -192,10 +216,19 @@ public sealed class Clients(IHttpClientFactory http)
             status = Parse(await Send(request, ct));
         }
         if (string.IsNullOrEmpty(status.Hash) || status.Hash.Any(c => !Uri.IsHexDigit(c))) throw new InvalidOperationException("TorrServer n'a pas retourné de hash valide.");
-        while (status.Files is not { Count: > 0 })
+        try
         {
-            await Task.Delay(1000, ct);
-            status = await GetTorrent(status.Hash, ct);
+            while (status.Files is not { Count: > 0 })
+            {
+                await Task.Delay(1000, ct);
+                status = await GetTorrent(status.Hash, ct);
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or HttpRequestException)
+        {
+            // pas de pair ni de métadonnées : inutile de le laisser dans TorrServer
+            _ = RemoveTorrent(status.Hash).ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
+            throw;
         }
         return status;
     }
@@ -205,6 +238,13 @@ public sealed class Clients(IHttpClientFactory http)
         using var request = Torr(HttpMethod.Post, "torrents");
         request.Content = JsonContent.Create(new { action = "get", hash });
         return Parse(await Send(request, ct));
+    }
+
+    public async Task RemoveTorrent(string hash)
+    {
+        using var request = Torr(HttpMethod.Post, "torrents");
+        request.Content = JsonContent.Create(new { action = "rem", hash });
+        using var response = await http.CreateClient("ts-api").SendAsync(request);
     }
 
     public string StreamUrl(string hash, int index, string path) =>
@@ -253,7 +293,7 @@ public sealed class Clients(IHttpClientFactory http)
         {
             try { result[name] = await f(); } catch (Exception ex) { result[name] = "ÉCHEC : " + ex.Message; }
         }
-        await Try("TMDB", async () => { await Tmdb("configuration", ct); return "OK"; });
+        await Try("TMDB", async () => { await Send(TmdbRequest(TmdbUrl("configuration", null)), ct); return "OK"; });
         await Try("Prowlarr", async () =>
         {
             using var r = new HttpRequestMessage(HttpMethod.Get, Endpoint(Config.ProwlarrUrl, "api/v1/indexer"));

@@ -15,8 +15,8 @@ public sealed class VersionService(LibraryService lib, Resolver resolver, Source
     private static readonly TimeSpan Ttl = TimeSpan.FromHours(4);
     private readonly ConcurrentDictionary<string, DateTime> _fresh = new();
     private readonly ConcurrentDictionary<string, Task> _running = new();
-    /// <summary>« clé média|sid » → fichier .strm de la version (pour l'analyse au premier lancement).</summary>
-    private readonly ConcurrentDictionary<string, string> _paths = new();
+    /// <summary>Une relecture à la fois par série : deux en parallèle provoquent des erreurs en base côté Jellyfin.</summary>
+    private readonly ConcurrentDictionary<int, SemaphoreSlim> _seriesGates = new();
 
     private static readonly string[] LangTags = ["MULTI", "VFF", "VFQ", "VF2", "VFI", "TRUEFRENCH", "FRENCH", "VF", "VOSTFR", "SUBFRENCH"];
 
@@ -60,9 +60,10 @@ public sealed class VersionService(LibraryService lib, Resolver resolver, Source
         catch (TimeoutException) { }
     }
 
-    /// <summary>Garantit que le film / la série existe dans Jellyfin ; renvoie l'élément à ouvrir.</summary>
-    public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> Progress = new();
+    /// <summary>Avancement (%) des titres en cours d'ouverture.</summary>
+    public static readonly ConcurrentDictionary<string, int> Progress = new();
 
+    /// <summary>Garantit que le film / la série existe dans Jellyfin ; renvoie l'élément à ouvrir.</summary>
     public async Task<BaseItem> Open(string type, int id, CancellationToken ct)
     {
         var pk = type + id;
@@ -114,11 +115,7 @@ public sealed class VersionService(LibraryService lib, Resolver resolver, Source
         for (var i = 0; i < 60 && JellyfinVersions(id) < disk; i++) await Task.Delay(500, ct);
     }
 
-    private int VersionsOnDisk(int id)
-    {
-        var loc = lib.Location(new MediaRef("movie", id));
-        return loc is null || !Directory.Exists(loc.Value.Dir) ? 0 : Directory.GetFiles(loc.Value.Dir, "*.strm").Length;
-    }
+    private int VersionsOnDisk(int id) => lib.VersionsOnDisk(new MediaRef("movie", id));
 
     private IEnumerable<int> Seasons(int id)
     {
@@ -135,9 +132,7 @@ public sealed class VersionService(LibraryService lib, Resolver resolver, Source
         var plan = await resolver.BuildPlan(m, ct);
         var versions = plan.Ranked.Take(Max).Select(x => (Sid: store.Put(x.Release), Label: Label(x.Release, false))).ToList();
         store.Save();
-        Remember(m, versions);
-        lib.WriteVersions(m, versions);
-        await lib.ApplyMovieVersions(id, ct);
+        if (lib.WriteVersions(m, versions)) await lib.ApplyMovieVersions(id, ct);   // relit toute la bibliothèque : seulement si besoin
         log.LogInformation("{K} : {N} versions", m.Key, versions.Count);
     }
 
@@ -155,38 +150,45 @@ public sealed class VersionService(LibraryService lib, Resolver resolver, Source
         foreach (var e in Episodes(dir))
         {
             var m = new MediaRef("tv", id, season, e);
-            if (_fresh.ContainsKey(m.Key)) continue;   // épisode déjà détaillé (sources propres + packs)
-            Remember(m, packs);
-            n += lib.WriteVersions(m, packs);
+            if (lib.WriteVersions(m, packs, additive: true, cap: Max)) n++;
         }
-        await RescanSeason(id, season, ct);
-        log.LogInformation("tv:{Id} saison {S} : {P} packs, {N} versions d'épisodes", id, season, packs.Count, n);
+        if (n > 0) await RescanSeason(id, season, ct);
+        log.LogInformation("tv:{Id} saison {S} : {P} packs, {N} épisodes mis à jour", id, season, packs.Count, n);
     }
 
-    /// <summary>Sources propres à un épisode (épisode exact + packs), quand on ouvre sa page.</summary>
-    private async Task<int> EpisodeVersions(MediaRef m, CancellationToken ct)
+    /// <summary>Sources propres à un épisode (épisode exact + packs), quand on ouvre sa page. Renvoie vrai si le menu « Version » a changé.</summary>
+    private async Task<bool> EpisodeVersions(MediaRef m, CancellationToken ct)
     {
         var plan = await resolver.BuildPlan(m, ct);
         var versions = plan.Ranked.Take(Max)
             .Select(x => (Sid: store.Put(x.Release), Label: Label(x.Release, Ranking.TvFit(x.Release.Title, m.Season, m.Episode) == 2))).ToList();
         store.Save();
-        Remember(m, versions);
-        lib.WriteVersions(m, versions);
+        var changed = lib.WriteVersions(m, versions) || OutOfSync(m);
         if (versions.Count > 0) _fresh[m.Key] = DateTime.UtcNow;   // 0 source : on réessaiera à la prochaine ouverture
-        await RescanSeason(m.TmdbId, m.Season, ct);
-        log.LogInformation("{K} : {N} versions", m.Key, versions.Count);
-        return versions.Count;
+        if (changed) await RescanSeason(m.TmdbId, m.Season, ct);
+        log.LogInformation("{K} : {N} versions{C}", m.Key, versions.Count, changed ? " (menu mis à jour)" : "");
+        return changed;
     }
+
+    /// <summary>Jellyfin n'a pas (encore) pris en compte tous les fichiers de cet épisode.</summary>
+    private bool OutOfSync(MediaRef m) =>
+        lib.StrmPath(m) is { } path && library.FindByPath(path, false) is Video video && video.GetAllVersions().Count() != lib.VersionsOnDisk(m);
 
     private async Task RescanSeason(int id, int season, CancellationToken ct)
     {
         var show = lib.ShowFolder(id);
         if (show is null) return;
-        var dirs = new DirectoryService(files);
-        if (library.FindByPath(Path.Combine(show, $"Season {season:00}"), true) is Folder seasonItem)
-            await seasonItem.ValidateChildren(new Progress<double>(), new MetadataRefreshOptions(dirs), false, false, ct);
-        else if (library.FindByPath(show, true) is Folder series)
-            await series.ValidateChildren(new Progress<double>(), new MetadataRefreshOptions(dirs), true, false, ct);
+        var gate = _seriesGates.GetOrAdd(id, _ => new SemaphoreSlim(1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            var dirs = new DirectoryService(files);
+            if (library.FindByPath(Path.Combine(show, $"Season {season:00}"), true) is Folder seasonItem)
+                await seasonItem.ValidateChildren(new Progress<double>(), new MetadataRefreshOptions(dirs), false, false, ct);
+            else if (library.FindByPath(show, true) is Folder series)
+                await series.ValidateChildren(new Progress<double>(), new MetadataRefreshOptions(dirs), true, false, ct);
+        }
+        finally { gate.Release(); }
     }
 
     private static IEnumerable<int> Episodes(string dir) =>
@@ -207,8 +209,9 @@ public sealed class VersionService(LibraryService lib, Resolver resolver, Source
         if (item is Episode ep && ep.ParentIndexNumber is int s && ep.IndexNumber is int e)
         {
             var m = new MediaRef("tv", id, s, e);
+            if (lib.StrmPath(m) is { } strm) _ = probe.ProbePath(strm);   // lancement immédiat : torrent chargé et durée connue d'avance
             if (_fresh.TryGetValue(m.Key, out var at) && DateTime.UtcNow - at < Ttl) return false;
-            return await EpisodeVersions(m, ct) > 0;
+            return await EpisodeVersions(m, ct);
         }
         if (item is Season season && season.IndexNumber is int sn)
         {
@@ -230,20 +233,30 @@ public sealed class VersionService(LibraryService lib, Resolver resolver, Source
         return false;
     }
 
-    private void Remember(MediaRef m, List<(string Sid, string Label)> versions)
+    /// <summary>La source automatique de ce titre a changé : la durée de « Meilleure source » n'est plus valable.</summary>
+    public void SourceChanged(MediaRef m)
     {
-        var loc = lib.Location(m);
-        if (loc is null) return;
-        var n = 1;
-        foreach (var v in versions)
-            _paths[m.Key + "|" + v.Sid] = Path.Combine(loc.Value.Dir, $"{loc.Value.Base} - {n++:00} · {LibraryService.SafeLabelPublic(v.Label)}.strm");
+        if (lib.StrmPath(m) is { } path) probe.Forget(path);
     }
 
-    /// <summary>À la lecture : analyse de la version lue, et packs de sa saison préparés pour la suite.</summary>
-    public void Played(MediaRef m, string? sid)
+    /// <summary>
+    /// Lecture en cours : les packs de la saison et l'épisode suivant sont préparés à l'avance,
+    /// pour que l'enchaînement soit immédiat.
+    /// </summary>
+    public void Played(MediaRef m, Guid? user)
     {
-        var path = sid is null ? lib.StrmPath(m) : _paths.GetValueOrDefault(m.Key + "|" + sid);
-        if (path is not null) probe.ProbePath(path);
-        if (m.IsTv) Background($"tv{m.TmdbId}s{m.Season}", () => SeasonVersions(m.TmdbId, m.Season, CancellationToken.None));
+        if (!m.IsTv) return;
+        Background($"tv{m.TmdbId}s{m.Season}", () => SeasonVersions(m.TmdbId, m.Season, CancellationToken.None));
+        Background($"next:{m.Key}", async () =>
+        {
+            await Task.Delay(TimeSpan.FromMinutes(2));   // pas pendant le démarrage : même torrent lu deux fois = lancement plus lent
+            var next = new[] { new MediaRef("tv", m.TmdbId, m.Season, m.Episode + 1), new MediaRef("tv", m.TmdbId, m.Season + 1, 1) }
+                .FirstOrDefault(x => lib.StrmPath(x) is { } p && File.Exists(p));
+            if (next is null) return;
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            await resolver.Resolve(next, cts.Token, user);
+            await probe.ProbePath(lib.StrmPath(next)!);
+            log.LogInformation("{K} : épisode suivant prêt", next.Key);
+        });
     }
 }

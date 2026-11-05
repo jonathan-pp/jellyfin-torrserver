@@ -55,7 +55,7 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     public int MaxEpisodeSizeGb { get; set; } = 8;
     public int CandidateTimeoutSeconds { get; set; } = 20;
     public int MaxCandidates { get; set; } = 6;
-    /// <summary>Nombre de sources affichées par titre dans la chaîne TMDB.</summary>
+    /// <summary>Nombre de sources proposées par titre dans le menu « Version » (15 au maximum).</summary>
     public int MaxResults { get; set; } = 25;
 
     /// <summary>Remplit seul la bibliothèque avec les titres populaires et les mieux notés de TMDB.</summary>

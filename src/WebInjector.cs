@@ -12,7 +12,7 @@ public sealed class PatchPayload
 }
 
 /// <summary>
-/// Ajoute l'application dans l'interface web de Jellyfin (menu latéral + bouton) via le plugin « File Transformation »,
+/// Ajoute la page Découvrir et la recherche TMDB dans l'interface web de Jellyfin via le plugin « File Transformation »,
 /// sans modifier les fichiers de Jellyfin.
 /// </summary>
 public sealed class WebInjector(ILogger<WebInjector> log) : IHostedService
@@ -28,7 +28,7 @@ public sealed class WebInjector(ILogger<WebInjector> log) : IHostedService
             if (TryRegister()) return;
             await Task.Delay(1000, ct);
         }
-        log.LogWarning("Plugin « File Transformation » absent : l'entrée TorrServer ne sera pas ajoutée au menu de Jellyfin (l'application reste accessible sur /TorrServerPlugin/app/).");
+        log.LogWarning("Plugin « File Transformation » absent : la page Découvrir et la recherche TMDB ne seront pas ajoutées à Jellyfin.");
     }
 
     public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
@@ -51,7 +51,7 @@ public sealed class WebInjector(ILogger<WebInjector> log) : IHostedService
             ["callbackMethod"] = nameof(Transform),
         });
         register.Invoke(null, [parse.Invoke(null, [json])]);
-        log.LogInformation("Entrée TorrServer ajoutée à l'interface web de Jellyfin (via File Transformation).");
+        log.LogInformation("Page Découvrir ajoutée à l'interface web de Jellyfin (via File Transformation).");
         return true;
     }
 

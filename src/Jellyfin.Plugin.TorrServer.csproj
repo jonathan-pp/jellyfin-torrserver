@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <Version>0.2.0.0</Version>
-    <AssemblyVersion>0.2.0.0</AssemblyVersion>
+    <Version>0.3.0.0</Version>
+    <AssemblyVersion>0.3.0.0</AssemblyVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
@@ -17,10 +17,6 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Configuration/configPage.html" />
-    <EmbeddedResource Include="Web/index.html" LogicalName="Jellyfin.Plugin.TorrServer.Web.index.html" />
     <EmbeddedResource Include="Web/inject.js" LogicalName="Jellyfin.Plugin.TorrServer.Web.inject.js" />
-    <EmbeddedResource Include="Web/hls.min.js" LogicalName="Jellyfin.Plugin.TorrServer.Web.hls.min.js" />
-    <EmbeddedResource Include="Web/manifest.webmanifest" LogicalName="Jellyfin.Plugin.TorrServer.Web.manifest.webmanifest" />
-    <EmbeddedResource Include="../assets/logo.png" LogicalName="Jellyfin.Plugin.TorrServer.logo.png" />
   </ItemGroup>
 </Project>

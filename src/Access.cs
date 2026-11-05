@@ -4,6 +4,8 @@ using System.Text.Json;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.MediaInfo;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using System.Text.RegularExpressions;
 
@@ -99,8 +101,13 @@ public sealed class PlaybackTracker(ILibraryManager library, ProbeService probe)
 {
     private readonly ConcurrentDictionary<string, (Guid User, DateTime At)> _last = new();
 
-    public Guid? UserFor(string key) =>
-        _last.TryGetValue(key, out var v) && DateTime.UtcNow - v.At < TimeSpan.FromMinutes(10) ? v.User : null;
+    /// <summary>Durée de validité prolongée à chaque lecture : un film peut durer des heures, et ffmpeg rouvre le flux à chaque saut.</summary>
+    public Guid? UserFor(string key)
+    {
+        if (!_last.TryGetValue(key, out var v) || DateTime.UtcNow - v.At > TimeSpan.FromHours(6)) return null;
+        _last[key] = (v.User, DateTime.UtcNow);
+        return v.User;
+    }
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
@@ -121,11 +128,23 @@ public sealed class PlaybackTracker(ILibraryManager library, ProbeService probe)
                 var target = Guid.TryParse(msid, out var sg) ? library.GetItemById(sg) : null;
                 target ??= library.GetItemById(itemId);
                 if (target?.Path is { } tp && tp.StartsWith(LibraryService.Root, StringComparison.Ordinal) && tp.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
-                    await probe.ProbePath(tp).WaitAsync(TimeSpan.FromSeconds(25), context.HttpContext.RequestAborted).ConfigureAwait(false);
+                    await probe.ProbePath(tp).WaitAsync(TimeSpan.FromSeconds(30), context.HttpContext.RequestAborted).ConfigureAwait(false);
             }
         }
         catch { /* ne jamais gêner la lecture */ }
-        await next();
+        var executed = await next();
+        try
+        {
+            // Jellyfin vient d'actualiser l'élément : le lecteur doit recevoir la durée mesurée, pas celle de TMDB
+            if (executed.Result is ObjectResult { Value: PlaybackInfoResponse { MediaSources: { } sources } })
+                foreach (var ms in sources)
+                    if (Guid.TryParse(ms.Id, out var id) && probe.RealTicks(id) is { } real)
+                    {
+                        ms.RunTimeTicks = real;
+                        if (library.GetItemById(id) is { } version) probe.Restore(version);
+                    }
+        }
+        catch { /* idem */ }
     }
 
     /// <summary>Clé TorrServer (movie:ID ou tv:ID:S:E) d'un élément de nos bibliothèques.</summary>

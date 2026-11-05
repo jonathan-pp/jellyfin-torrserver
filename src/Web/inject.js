@@ -1,4 +1,4 @@
-/* TorrServer dans Jellyfin : rangées TMDB sur l'accueil et dans la recherche.
+/* TorrServer dans Jellyfin : page Découvrir (TMDB) et ligne TMDB dans la recherche.
    Un clic sur une affiche crée le titre à la volée et ouvre la fiche native de Jellyfin
    (le menu « Version » propose les sources torrent). */
 (function () {
@@ -75,7 +75,7 @@
       pc.textContent = shown + ' %';
     }, 350);
     var poll = setInterval(function () { api('GET', 'progress/' + type + '/' + id).then(function (r) { real = Math.max(real, r.pct || 0); }).catch(function () { }); }, 600);
-    api('POST', 'open', { Type: type, Id: id, Season: 0, Episode: 0 }).then(function (r) {
+    api('POST', 'open', { Type: type, Id: id }).then(function (r) {
       pc.textContent = '100 %';
       var sid = ''; try { sid = ApiClient.serverId(); } catch (e) { }
       var url = 'details?id=' + r.itemId + (sid ? '&serverId=' + sid : '');
@@ -121,39 +121,10 @@
     }, true);
   }
 
-  // ---------------------------------------------------------------- accueil
-  var homeData = null, homeAt = 0, homeLoading = false;
-  var ORDER = ['Séries tendances', 'Séries populaires', 'Animes populaires', 'Nouveautés en streaming', 'Films populaires', "Films d'animation japonais", 'Séries cultes', 'Films cultes'];
-  function loadHome(cb) {
-    if (homeData && Date.now() - homeAt < 15 * 60000) return cb(homeData);
-    if (homeLoading || !token()) return;
-    homeLoading = true;
-    api('GET', 'home').then(function (rows) {
-      homeLoading = false;
-      rows.sort(function (a, b) { return ORDER.indexOf(a.title) - ORDER.indexOf(b.title); });
-      homeData = rows; homeAt = Date.now(); cb(rows);
-    }).catch(function () { homeLoading = false; });
-  }
+  // ---------------------------------------------------------------- recherche
   function visiblePage(sel) {
     return [].slice.call(document.querySelectorAll(sel)).filter(function (p) { return !p.classList.contains('hide') && p.offsetParent !== null; })[0];
   }
-  function addHome() {
-    var page = visiblePage('#indexPage, .homePage');
-    if (!page) return;
-    var container = page.querySelector('.homeSectionsContainer');
-    if (!container || container.querySelector('.tsHome')) return;
-    css();
-    loadHome(function (rows) {
-      if (container.querySelector('.tsHome')) return;
-      var box = document.createElement('div');
-      box.className = 'tsHome verticalSection';
-      box.innerHTML = rows.filter(function (r) { return r.items && r.items.length; }).map(rowHtml).join('');
-      wire(box);
-      container.insertBefore(box, container.firstChild);
-    });
-  }
-
-  // ---------------------------------------------------------------- recherche
   var lastQuery = '', searchTimer = null, searchSeq = 0;
   function currentQuery() {
     var m = location.hash.match(/[?&]query=([^&]*)/);
@@ -371,7 +342,12 @@
   }
 
   function tick() { try { addTopLink(); addMenu(); addTmdbPage(); addSearch(); addDetails(); sortVersions(); } catch (e) { } }
-  new MutationObserver(tick).observe(document.documentElement, { childList: true, subtree: true });
+  // la page change sans arrêt (lecteur, images…) : au plus une vérification toutes les 200 ms
+  var tickTimer = null;
+  new MutationObserver(function () {
+    if (tickTimer) return;
+    tickTimer = setTimeout(function () { tickTimer = null; tick(); }, 200);
+  }).observe(document.documentElement, { childList: true, subtree: true });
   window.addEventListener('hashchange', tick);
   document.addEventListener('input', function (e) { if (e.target && e.target.matches && e.target.matches('input[type=search], .searchfields-txtSearch')) setTimeout(tick, 50); }, true);
   tick();

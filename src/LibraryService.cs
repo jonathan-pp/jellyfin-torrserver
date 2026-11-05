@@ -136,28 +136,107 @@ public sealed class LibraryService(Clients clients, ILibraryManager library, IPr
     }
 
     /// <summary>Écrit les versions (une par source) à côté de « Meilleure source » et supprime les anciennes.</summary>
-    public int WriteVersions(MediaRef m, IReadOnlyList<(string Sid, string Label)> versions)
+    /// <summary>
+    /// Écrit les fichiers des versions d'un titre. Renvoie vrai si le dossier a changé (Jellyfin doit le relire).
+    /// Un fichier renommé est un nouvel élément pour Jellyfin (durée et pistes perdues, analyse, écritures en base) :
+    /// une source déjà présente garde donc son fichier, même si son nombre de sources a bougé ; l'étiquette n'est
+    /// rafraîchie qu'après <see cref="LabelMaxAge"/>.
+    /// </summary>
+    /// <param name="additive">Ajoute sans retirer (packs d'une saison : ne pas effacer les sources propres à un épisode).</param>
+    public bool WriteVersions(MediaRef m, IReadOnlyList<(string Sid, string Label)> versions, bool additive = false, int cap = int.MaxValue)
+    {
+        var loc = Location(m);
+        if (loc is null || !Directory.Exists(loc.Value.Dir)) return false;
+        var (dir, b) = loc.Value;
+        var auto = Path.Combine(dir, $"{b} - {AutoLabel}.strm");
+        if (!File.Exists(auto)) return false;
+        var url = StreamUrl(m.IsTv ? $"tv/{m.TmdbId}/{m.Season}/{m.Episode}" : $"movie/{m.TmdbId}");
+
+        lock (_writeLock) return WriteVersionsCore(dir, b, auto, url, versions, additive, cap);
+    }
+
+    private readonly object _writeLock = new();
+
+    private static bool WriteVersionsCore(string dir, string b, string auto, string url, IReadOnlyList<(string Sid, string Label)> versions, bool additive, int cap)
+    {
+        var changed = false;
+        var existing = new Dictionary<string, string>(StringComparer.Ordinal);
+        var labels = new Dictionary<string, string>(StringComparer.Ordinal);   // étiquette → identifiant lu dans le fichier
+        foreach (var f in Directory.GetFiles(dir, "*.strm").OrderBy(x => x, StringComparer.Ordinal))
+        {
+            if (f == auto || !Path.GetFileName(f).StartsWith(b + " - ", StringComparison.Ordinal)) continue;
+            var sid = Regex.Match(File.ReadAllText(f), @"[?&]sid=([0-9a-f]+)");
+            if (sid.Success && labels.TryAdd(LabelOf(f), sid.Groups[1].Value) && existing.TryAdd(sid.Groups[1].Value, f)) continue;
+            DeleteIfExists(f);   // ancien format ou doublon
+            changed = true;
+        }
+
+        // même étiquette, identifiant différent (fichier écrit quand l'identifiant dépendait du lien) : c'est la même source
+        foreach (var v in versions)
+            if (!existing.ContainsKey(v.Sid) && labels.TryGetValue(SafeLabel(v.Label), out var old) && !versions.Any(x => x.Sid == old) && existing.Remove(old, out var file))
+                existing[v.Sid] = file;
+
+        var keep = new HashSet<string>(StringComparer.Ordinal);
+        var added = new List<(string Sid, string Label)>();
+        foreach (var v in versions)
+        {
+            if (!existing.TryGetValue(v.Sid, out var file)) { added.Add(v); continue; }
+            var content = url + "?sid=" + v.Sid;
+            var number = Number(file);
+            var wanted = Path.Combine(dir, $"{b} - {number:00} · {SafeLabel(v.Label)}.strm");
+            if (wanted != file && number > 0 && DateTime.UtcNow - File.GetLastWriteTimeUtc(file) > LabelMaxAge)
+            {
+                DeleteIfExists(file);
+                file = wanted;
+                changed = true;
+            }
+            WriteIfChanged(file, content);
+            keep.Add(file);
+        }
+        foreach (var f in existing.Values)
+        {
+            if (keep.Contains(f)) continue;
+            if (additive) keep.Add(f);
+            else { DeleteIfExists(f); changed = true; }
+        }
+        var free = 1;
+        var used = keep.Select(Number).ToHashSet();
+        foreach (var v in added)
+        {
+            if (keep.Count >= cap) break;
+            while (!used.Add(free)) free++;
+            var file = Path.Combine(dir, $"{b} - {free:00} · {SafeLabel(v.Label)}.strm");
+            WriteIfChanged(file, url + "?sid=" + v.Sid);
+            keep.Add(file);
+            changed = true;
+        }
+        return changed;
+    }
+
+    private static readonly TimeSpan LabelMaxAge = TimeSpan.FromDays(7);
+
+    /// <summary>Étiquette d'un fichier de version (sans le préfixe ni le numéro).</summary>
+    private static string LabelOf(string file)
+    {
+        var name = Path.GetFileNameWithoutExtension(file);
+        var i = name.LastIndexOf(" · ", StringComparison.Ordinal);
+        var n = Regex.Match(name, @" - \d{2,3} · ");
+        return n.Success ? name[(n.Index + n.Length)..] : (i >= 0 ? name[(i + 3)..] : name);
+    }
+
+    private static int Number(string file)
+    {
+        var n = Regex.Match(Path.GetFileName(file), @" - (\d{2,3}) · ");
+        return n.Success ? int.Parse(n.Groups[1].Value) : 0;
+    }
+
+    /// <summary>Nombre de fichiers de versions d'un titre (« Meilleure source » comprise).</summary>
+    public int VersionsOnDisk(MediaRef m)
     {
         var loc = Location(m);
         if (loc is null || !Directory.Exists(loc.Value.Dir)) return 0;
-        var (dir, b) = loc.Value;
-        var auto = Path.Combine(dir, $"{b} - {AutoLabel}.strm");
-        if (!File.Exists(auto)) return 0;
-        var path = m.IsTv ? $"tv/{m.TmdbId}/{m.Season}/{m.Episode}" : $"movie/{m.TmdbId}";
-        var keep = new HashSet<string>(StringComparer.Ordinal) { auto };
-        var n = 1;
-        foreach (var v in versions)
-        {
-            var file = Path.Combine(dir, $"{b} - {n++:00} · {SafeLabel(v.Label)}.strm");
-            WriteIfChanged(file, StreamUrl(path) + "?sid=" + v.Sid);
-            keep.Add(file);
-        }
-        foreach (var f in Directory.GetFiles(dir, "*.strm"))
-            if (Path.GetFileName(f).StartsWith(b + " - ", StringComparison.Ordinal) && !keep.Contains(f)) DeleteIfExists(f);
-        return versions.Count;
+        return Directory.GetFiles(loc.Value.Dir, "*.strm").Count(f => Path.GetFileName(f).StartsWith(loc.Value.Base + " - ", StringComparison.Ordinal));
     }
-
-    public static string SafeLabelPublic(string s) => SafeLabel(s);
 
     private static string SafeLabel(string s)
     {
@@ -270,20 +349,11 @@ public sealed class LibraryService(Clients clients, ILibraryManager library, IPr
         return library.GetItemById(Guid.Parse(vf.ItemId)) as Folder ?? throw new InvalidOperationException("Bibliothèque TorrServer introuvable.");
     }
 
-    /// <summary>Fait prendre en compte les nouvelles versions d'un dossier (saison ou film).</summary>
-    public async Task RescanFolderOf(BaseItem item, CancellationToken ct)
-    {
-        var dirs = new DirectoryService(files);
-        if (item.GetParent() is Folder parent) await parent.ValidateChildren(new Progress<double>(), new MetadataRefreshOptions(dirs), false, false, ct);
-    }
-
     private static void WriteIfChanged(string path, string content)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         if (!File.Exists(path) || File.ReadAllText(path) != content) File.WriteAllText(path, content, new UTF8Encoding(false));
     }
-
-    public async Task<CatalogItem> Add(string type, int tmdbId, IReadOnlyCollection<int>? seasons, CancellationToken ct) => await Add(type, tmdbId, seasons, true, ct);
 
     public async Task<CatalogItem> Add(string type, int tmdbId, IReadOnlyCollection<int>? seasons, bool scan, CancellationToken ct)
     {
@@ -377,7 +447,7 @@ public sealed class LibraryService(Clients clients, ILibraryManager library, IPr
             SaveCatalog(catalog);
             var baseDir = type == "movie" ? MoviesDir : ShowsDir;
             if (Directory.Exists(baseDir))
-                foreach (var dir in Directory.GetDirectories(baseDir, $"*[[]tmdbid-{tmdbId}]"))
+                foreach (var dir in Directory.GetDirectories(baseDir, $"*[tmdbid-{tmdbId}]"))
                     Directory.Delete(dir, true);
             library.QueueLibraryScan();
         }
@@ -412,47 +482,6 @@ public sealed class LibraryService(Clients clients, ILibraryManager library, IPr
     }
 
     // ---------- lecture depuis l'application ----------
-    private readonly ConcurrentDictionary<Guid, string> _probed = new();
-
-    /// <summary>Garantit que le film / l'épisode existe dans Jellyfin (fichier .strm + élément), sans scanner les autres bibliothèques.</summary>
-    public async Task<BaseItem> EnsureItem(MediaRef m, IDirectoryService dirs, CancellationToken ct)
-    {
-        var path = StrmPath(m);
-        if (path is null || !File.Exists(path))
-        {
-            await Add(m.Kind, m.TmdbId, null, false, ct);
-            path = StrmPath(m) ?? throw new InvalidOperationException("Titre introuvable.");
-            if (!File.Exists(path)) throw new InvalidOperationException("Cet épisode n'est pas encore diffusé.");
-        }
-        if (library.FindByPath(path, false) is { } existing) return existing;
-        var root = m.IsTv ? ShowsDir : MoviesDir;
-        var vf = library.GetVirtualFolders().FirstOrDefault(v => v.Locations.Any(l => string.Equals(Path.GetFullPath(l).TrimEnd('/'), Path.GetFullPath(root).TrimEnd('/'), StringComparison.Ordinal)))
-            ?? throw new InvalidOperationException("Bibliothèque TorrServer introuvable : cliquez sur « Créer les bibliothèques » dans la configuration.");
-        if (library.GetItemById(Guid.Parse(vf.ItemId)) is not Folder folder) throw new InvalidOperationException("Bibliothèque TorrServer introuvable.");
-        await folder.ValidateChildren(new Progress<double>(), new MetadataRefreshOptions(dirs), true, false, ct);
-        var queued = false;
-        for (var i = 0; i < 60; i++)
-        {
-            if (library.FindByPath(path, false) is { } item) return item;
-            if (!queued && i >= 2)
-            {
-                providers.QueueRefresh(folder.Id, new MetadataRefreshOptions(new DirectoryService(files)) { MetadataRefreshMode = MetadataRefreshMode.Default, ImageRefreshMode = MetadataRefreshMode.Default }, RefreshPriority.High);
-                queued = true;
-            }
-            await Task.Delay(1000, ct);
-        }
-        throw new InvalidOperationException("Jellyfin n'a pas encore pris en compte ce titre, réessayez dans un instant.");
-    }
-
-    /// <summary>Analyse (ffprobe) l'élément si la source a changé depuis la dernière analyse.</summary>
-    public async Task ProbeIfChanged(BaseItem item, Entry source, IDirectoryService dirs, CancellationToken ct)
-    {
-        var sig = source.Hash + ":" + source.FileId;
-        if ((item.RunTimeTicks ?? 0) > 0 && _probed.TryGetValue(item.Id, out var last) && last == sig) return;
-        await item.RefreshMetadata(new MetadataRefreshOptions(dirs) { MetadataRefreshMode = MetadataRefreshMode.Default, ImageRefreshMode = MetadataRefreshMode.Default, EnableRemoteContentProbe = true }, ct);
-        _probed[item.Id] = sig;
-    }
-
     // ---------- catalogue automatique ----------
     private int _syncing;
     public bool Syncing => _syncing == 1;

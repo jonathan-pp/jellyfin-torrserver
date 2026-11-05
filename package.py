@@ -18,7 +18,7 @@ md5 = hashlib.md5(zpath.read_bytes()).hexdigest()
 (root / "dist" / f"TorrServer-{version}.zip.sha256").write_text(hashlib.sha256(zpath.read_bytes()).hexdigest() + f"  {zpath.name}\n")
 manifest = [{"guid": meta["guid"], "name": "TorrServer", "description": meta["description"], "overview": meta["overview"],
              "owner": "jonathan-pp", "category": "General", "imageUrl": "https://raw.githubusercontent.com/jonathan-pp/jellyfin-torrserver/main/assets/logo.png",
-             "versions": [{"version": version, "changelog": "Réécriture : bibliothèque native (.strm), choix automatique de la meilleure source.",
+             "versions": [{"version": version, "changelog": "Interface dédiée retirée (tout passe par Jellyfin), passage automatique à la source suivante si une source est morte, épisode suivant préparé à l'avance, versions stables, moins de charge.",
                            "targetAbi": "12.4.0.0", "sourceUrl": f"https://raw.githubusercontent.com/jonathan-pp/jellyfin-torrserver/main/dist/{zpath.name}",
                            "checksum": md5, "timestamp": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}]}]
 (root / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2))

@@ -14,7 +14,7 @@ Les fichiers de la bibliothèque sont de simples `.strm` de quelques octets.
 
 ## Prérequis
 - Jellyfin **12.4** (.NET 10), [TorrServer](https://github.com/YouROK/TorrServer), [Prowlarr](https://prowlarr.com) avec vos indexeurs, un jeton TMDB.
-- Pour l'intégration à l'interface : le plugin **File Transformation** (`https://www.iamparadox.dev/jellyfin/plugins/manifest.json`).
+- Le plugin **File Transformation** (`https://www.iamparadox.dev/jellyfin/plugins/manifest.json`), qui ajoute la page Découvrir et la recherche TMDB à l'interface de Jellyfin.
 
 ## Installation
 Ajouter le dépôt de plugins dans Jellyfin (*Tableau de bord → Extensions → Dépôts*) :
@@ -27,16 +27,18 @@ puis installer **TorrServer** et redémarrer. Configurer ensuite *Extensions →
 - Un clic sur une affiche crée le titre et ouvre **la vraie fiche Jellyfin** (avec un pourcentage de chargement). Le menu **Version** liste les sources
   (`00 · ⚡ Meilleure source` = choix automatique, puis 01, 02… avec qualité, langues, nombre de sources, taille, indexeur).
 - Les titres non sortis sont signalés ; les épisodes ont leurs propres sources (packs de saison reconnus).
-- Application autonome : `http://<serveur>:8096/TorrServerPlugin/app/`.
 
 ## Gestion des utilisateurs
 *Extensions → TorrServer → Utilisateurs* : par utilisateur, accès à « Découvrir », trackers/indexeurs autorisés, et un profil de sources personnalisé
-(langues, résolution max, H.264, sources minimum, tailles max). Appliqué à l'application, à la lecture Jellyfin et au menu Version.
+(langues, résolution max, H.264, sources minimum, tailles max). Appliqué à la lecture et au menu Version.
 
 ## Détails techniques
 - Durées : les versions jamais analysées reçoivent la durée d'une autre version ou de TMDB ; la version lancée est analysée **avant** que le lecteur la reçoive (durée exacte, enchaînement des épisodes).
 - Les analyses automatiques de Jellyfin sur chaque `.strm` (qui chargeraient un torrent par version) sont refusées (détection du processus `ffprobe` via `/proc`, Linux).
-- Réglages ffmpeg : le plugin demande une analyse courte (`analyzeduration=10M`, `probesize=50M`) pour démarrer vite.
+- Source morte : si un torrent n'envoie aucune donnée en 45 s au début de la lecture, ou si la version choisie est inutilisable, le plugin passe à la source suivante sans erreur côté lecteur.
+- Enchaînement : pendant la lecture d'un épisode, le suivant est préparé à l'avance. Un pack choisi dans le menu Version reste utilisé pour la suite de la saison.
+- Versions stables : une source garde son fichier tant qu'elle reste proposée (son étiquette n'est rafraîchie qu'au bout de 7 jours), ce qui évite à Jellyfin de tout réanalyser.
+- Conseillé pour démarrer plus vite : limiter l'analyse de ffmpeg par `JELLYFIN_FFmpeg__analyzeduration=10M` et `JELLYFIN_FFmpeg__probesize=50M` dans l'environnement du service Jellyfin (valeurs par défaut : 200M / 1G, soit environ 75 Mo de torrent à charger avant la première image).
 - Les URL de lecture contiennent une clé secrète générée automatiquement. TorrServer n'a pas d'authentification : à garder sur le réseau local.
 
 ## Limites

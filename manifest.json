@@ -9,12 +9,12 @@
     "imageUrl": "https://raw.githubusercontent.com/jonathan-pp/jellyfin-torrserver/main/assets/logo.png",
     "versions": [
       {
-        "version": "0.2.0.0",
-        "changelog": "Réécriture : bibliothèque native (.strm), choix automatique de la meilleure source.",
+        "version": "0.3.0.0",
+        "changelog": "Interface dédiée retirée (tout passe par Jellyfin), passage automatique à la source suivante si une source est morte, épisode suivant préparé à l'avance, versions stables, moins de charge.",
         "targetAbi": "12.4.0.0",
-        "sourceUrl": "https://raw.githubusercontent.com/jonathan-pp/jellyfin-torrserver/main/dist/TorrServer-0.2.0.0.zip",
-        "checksum": "717b6977a4f09938e5c6bf97a603f22d",
-        "timestamp": "2026-11-05T20:49:29Z"
+        "sourceUrl": "https://raw.githubusercontent.com/jonathan-pp/jellyfin-torrserver/main/dist/TorrServer-0.3.0.0.zip",
+        "checksum": "0d959b9b57a456a49a56ffac151775d1",
+        "timestamp": "2026-11-05T21:25:16Z"
       }
     ]
   }
