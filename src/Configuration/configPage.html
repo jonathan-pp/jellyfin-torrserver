@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>TorrServer</title></head>
+<body>
+<div id="TorrServerPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+<div data-role="content"><div class="content-primary">
+<style>
+ #TorrServerPage .ts-status{margin:.5em 0;opacity:.9;white-space:pre-line}
+ #TorrServerPage h2{margin-top:1.8em}
+ #TorrServerPage .ts-row{display:flex;gap:.5em;align-items:flex-end;flex-wrap:wrap}
+ #TorrServerPage .ts-row .inputContainer{flex:1;min-width:14em;margin:0}
+ #TorrServerPage .ts-title{display:flex;justify-content:space-between;align-items:center;gap:1em;padding:.4em 0;border-bottom:1px solid rgba(127,127,127,.2)}
+  .ts-user{border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:.7em 1em;margin:.6em 0;background:rgba(255,255,255,.03)}
+  .ts-user-top{display:flex;align-items:center;gap:.8em;cursor:pointer;user-select:none}
+  .ts-user-top .ts-chev{width:1em;opacity:.7}
+  .ts-user-top b{font-size:1.1em;min-width:8em}
+  .ts-user-top .ts-sum{opacity:.65;font-size:.9em}
+  .ts-ubody{margin-top:.8em;padding-top:.7em;border-top:1px solid rgba(255,255,255,.1)}
+  .ts-user-head{display:flex;flex-wrap:wrap;align-items:center;gap:.4em 1.6em}
+  .ts-user-head b{font-size:1.1em;min-width:8em}
+  .ts-user label{display:inline-flex;align-items:center;gap:.4em;cursor:pointer}
+  .ts-user input[type=checkbox]{width:1.1em;height:1.1em}
+  .ts-prof{margin-top:.8em;display:grid;grid-template-columns:repeat(auto-fill,minmax(14em,1fr));gap:.7em 1em}
+  .ts-prof .wide{grid-column:1/-1}
+  .ts-langs{display:flex;flex-wrap:wrap;gap:.3em 1.2em;margin:.2em 0 .5em}.ts-langs label{white-space:nowrap}
+  .ts-langs + input{width:100%;box-sizing:border-box}
+  .ts-prof span.l{display:block;font-size:.85em;opacity:.75;margin-bottom:.2em}
+  .ts-prof input[type=text],.ts-prof input[type=number],.ts-prof select{width:100%;box-sizing:border-box;background:#222;color:#eee;border:1px solid #444;padding:.35em;border-radius:4px}
+  .ts-idx{display:flex;flex-wrap:wrap;gap:.4em .9em}
+  .ts-idx .off{opacity:.5}
+</style>
+<style>
+  #TorrServerPage .ts-tabs{display:flex;gap:.2em;border-bottom:1px solid rgba(127,127,127,.35);margin:1em 0 1.2em;overflow-x:auto}
+  #TorrServerPage .ts-tab{background:none;border:0;border-bottom:3px solid transparent;color:inherit;opacity:.65;padding:.7em 1.1em;cursor:pointer;font-size:1em;white-space:nowrap;font-family:inherit}
+  #TorrServerPage .ts-tab:hover{opacity:1}
+  #TorrServerPage .ts-tab.active{opacity:1;border-bottom-color:#00a4dc;font-weight:600}
+  #TorrServerPage .ts-panel{display:none;max-width:60em}
+  #TorrServerPage .ts-panel.active{display:block}
+  #TorrServerPage .ts-panel h2:first-child{margin-top:.4em}
+  #TorrServerPage table.ts-table{border-collapse:collapse;width:100%;max-width:46em}
+  #TorrServerPage .ts-table th,#TorrServerPage .ts-table td{text-align:left;padding:.45em .8em;border-bottom:1px solid rgba(127,127,127,.2)}
+  #TorrServerPage .ts-table td.n,#TorrServerPage .ts-table th.n{text-align:right;white-space:nowrap}
+  #TorrServerPage .ts-bar{height:.5em;border-radius:3px;background:#00a4dc;min-width:2px}
+  #TorrServerPage .ts-bar.warn{background:#e8a317}#TorrServerPage .ts-bar.full{background:#d9534f}
+  #TorrServerPage .ts-save{position:sticky;bottom:0;background:var(--theme-body-bg,#101010);padding:.8em 0;margin-top:1.5em;border-top:1px solid rgba(127,127,127,.25);z-index:5}
+</style>
+<h1>TorrServer</h1>
+<div class="ts-tabs" role="tablist">
+  <button type="button" class="ts-tab active" data-tab="apercu">Aperçu</button>
+  <button type="button" class="ts-tab" data-tab="connexions">Connexions</button>
+  <button type="button" class="ts-tab" data-tab="bibliotheque">Bibliothèque</button>
+  <button type="button" class="ts-tab" data-tab="sources">Sources</button>
+  <button type="button" class="ts-tab" data-tab="utilisateurs">Utilisateurs</button>
+  <button type="button" class="ts-tab" data-tab="calendrier">Calendrier</button>
+  <button type="button" class="ts-tab" data-tab="stats">Statistiques</button>
+</div>
+<form id="tsForm">
+<section class="ts-panel active" data-panel="apercu">
+<p>Films, séries et animes en streaming : rien n'est téléchargé sur le disque. Les utilisateurs ouvrent un titre depuis la page <b>Découvrir</b> ou la recherche de Jellyfin ; le menu <b>Version</b> de sa fiche liste les sources, la meilleure est choisie automatiquement.</p>
+
+<h2>Catalogue automatique</h2>
+<p>Tous les utilisateurs voient les titres populaires et les mieux notés de TMDB dans la bibliothèque, sans rien demander : ce ne sont que de petits fichiers, rien n'est stocké. La source n'est cherchée qu'au moment de lancer la lecture.</p>
+<div id="tsAutoStatus" class="ts-status">…</div>
+<div class="ts-row">
+  <button is="emby-button" type="button" class="raised button-submit" id="tsSync"><span>Mettre à jour maintenant</span></button>
+</div>
+
+<h2>Titres ouverts</h2>
+<div id="tsCatalogStatus" class="ts-status"></div>
+<div id="tsCatalog"></div>
+<div class="ts-row"><button is="emby-button" type="button" class="raised" id="tsRefresh"><span>Chercher les nouveaux épisodes</span></button></div>
+
+</section>
+<section class="ts-panel" data-panel="connexions">
+<h2>Connexions</h2>
+  <div class="inputContainer"><input is="emby-input" id="tmdbToken" type="password" label="TMDB — jeton de lecture (recommandé)" /><div class="fieldDescription">À créer gratuitement sur themoviedb.org → Paramètres → API.</div></div>
+  <div class="inputContainer"><input is="emby-input" id="tmdbKey" type="password" label="TMDB — clé API v3 (si pas de jeton)" /></div>
+  <div class="inputContainer"><input is="emby-input" id="prowlarrUrl" type="url" label="Adresse de Prowlarr" /></div>
+  <div class="inputContainer"><input is="emby-input" id="prowlarrKey" type="password" label="Clé API Prowlarr" /></div>
+  <div class="inputContainer"><input is="emby-input" id="torrUrl" type="url" label="Adresse de TorrServer" /></div>
+  <div class="inputContainer"><input is="emby-input" id="torrUser" type="text" label="TorrServer — utilisateur (facultatif)" /></div>
+  <div class="inputContainer"><input is="emby-input" id="torrPass" type="password" label="TorrServer — mot de passe (facultatif)" /></div>
+  <div class="inputContainer"><input is="emby-input" id="jfUrl" type="url" label="Adresse de Jellyfin vue par les lecteurs" /><div class="fieldDescription">Écrite dans les fichiers de la bibliothèque. Les appareils qui lisent doivent pouvoir l'atteindre (ex. http://serveur:8096).</div></div>
+
+  <h2>VPN</h2>
+  <div id="tsVpn" class="ts-status">…</div>
+  <div class="ts-row"><button is="emby-button" type="button" class="raised" id="tsTest"><span>Tester les connexions</span></button></div>
+</section>
+<section class="ts-panel" data-panel="bibliotheque">
+<h2>Catalogue et nettoyage</h2>
+  <label class="checkboxContainer"><input is="emby-checkbox" type="checkbox" id="autoCatalog" /><span>Remplir automatiquement la bibliothèque</span></label>
+  <div class="inputContainer"><input is="emby-input" id="autoPages" type="number" min="1" max="500" label="Pages TMDB par liste (20 titres par page)" /><div class="fieldDescription">5 ≈ 100 titres par liste (populaires, mieux notés, animes). Plus il y en a, plus le premier scan de Jellyfin est long.</div></div>
+
+  <div class="inputContainer"><input is="emby-input" id="autoMaxEp" type="number" min="0" label="Épisodes maximum par série (catalogue automatique)" /><div class="fieldDescription">Les séries plus longues sont limitées à leurs premières saisons (0 = sans limite). Vous pouvez toujours ajouter une série en entier à la main.</div></div>
+  <div class="inputContainer"><input is="emby-input" id="cleanupDays" type="number" min="0" label="Retirer les titres non regardés depuis (jours)" /><div class="fieldDescription">Films, séries et animes ni ouverts ni lus pendant ce délai sont retirés chaque nuit (0 = jamais). Ils reviennent avec leur historique si vous les rouvrez depuis Découvrir.</div></div>
+  <div class="inputContainer"><input is="emby-input" id="libRoot" type="text" label="Dossier de la bibliothèque (vide = automatique)" /></div>
+  <div class="ts-row"><button is="emby-button" type="button" class="raised" id="tsSetup"><span>Créer les bibliothèques</span></button></div>
+</section>
+<section class="ts-panel" data-panel="sources">
+<h2>Choix des sources</h2>
+  <div class="inputContainer"><div class="fieldDescription" style="margin-bottom:.4em">Langues préférées (les sources dans ces langues passent en premier)</div><div id="gLang"></div></div>
+  <div class="inputContainer"><input is="emby-input" id="avoidTags" type="text" label="Mots-clés à éviter" /></div>
+  <div class="inputContainer"><input is="emby-input" id="maxRes" type="number" min="480" max="2160" step="1" label="Résolution maximale (480, 720, 1080, 2160)" /></div>
+  <div class="inputContainer"><input is="emby-input" id="minSeeds" type="number" min="0" label="Sources minimum" /></div>
+  <div class="inputContainer"><input is="emby-input" id="maxMovieGb" type="number" min="1" label="Taille maximale d'un film (Go)" /></div>
+  <div class="inputContainer"><input is="emby-input" id="maxEpGb" type="number" min="1" label="Taille maximale d'un épisode (Go)" /></div>
+</section>
+<section class="ts-panel" data-panel="calendrier">
+<h2>Prochains épisodes</h2>
+<div id="tsCalendar" class="ts-status">…</div>
+<p class="fieldDescription">Un seul épisode par série : le prochain à sortir. Le jour de la sortie, un message s'affiche chez les comptes concernés et l'épisode suivant est préparé. La date apparaît aussi en tête du résumé de chaque série.</p>
+<h2>Agenda (abonnement .ics)</h2>
+<p class="fieldDescription">Ajoute ce lien comme « agenda par abonnement » (Google Agenda, Apple, Outlook…) : chaque compte y retrouve ses propres séries. Le lien contient une clé secrète : ne le partage qu'avec la personne concernée.</p>
+<div id="tsFeeds"></div>
+</section>
+<section class="ts-panel" data-panel="stats">
+<h2>Données lues ce mois-ci</h2>
+<div id="tsStatsMonth" class="ts-status">…</div>
+<h2>Titres les plus regardés ce mois-ci</h2>
+<div id="tsStatsTitles"></div>
+<h2>Mois précédents</h2>
+<div id="tsStatsHistory"></div>
+</section>
+<section class="ts-panel" data-panel="utilisateurs">
+<h2>Quota et profils</h2>
+  <div class="inputContainer"><input is="emby-input" id="monthlyQuota" type="number" min="0" label="Quota mensuel par utilisateur (Go)" /><div class="fieldDescription">Données qu'un utilisateur peut lire par mois (0 = illimité). Au-delà, la lecture est refusée jusqu'au mois suivant. Modifiable pour chaque utilisateur ci-dessous.</div></div>
+
+  <p class="fieldDescription">Réglages propres à chaque compte. <b>Découvrir</b> : accès au catalogue TMDB (page Découvrir, recherche TMDB) pour ouvrir des titres absents de la bibliothèque. <b>Profil personnalisé</b> : ses propres trackers et préférences de sources ; un champ vide reprend le réglage global ci-dessous. Une source choisie à la main ne vaut que pour le compte qui l'a choisie.</p>
+  <div id="tsUsers"></div>
+
+</section>
+<div class="ts-save"><div class="ts-row"><button is="emby-button" type="submit" class="raised button-submit block"><span>Enregistrer</span></button></div>
+  <div id="tsStatus" class="ts-status"></div></div>
+</form>
+</div></div>
+
+<script type="text/javascript">
+(function () {
+  var PLUGIN = '655fbf1b-525b-4f82-bdeb-f27dd0bdd606';
+  var page = document.querySelector('#TorrServerPage');
+  function $(id) { return page.querySelector('#' + id); }
+  // ---- statistiques et VPN
+  function gb(b) { return ((b || 0) / 1e9).toFixed(1) + ' Go'; }
+  function loadStats() {
+    api('GET', 'usage').then(function (r) {
+      var ids = Object.keys(r.names || {});
+      var max = Math.max.apply(null, ids.map(function (k) { return Math.max((r.users || {})[k] || 0, (r.quotas || {})[k] || 0); }).concat([1]));
+      $('tsStatsMonth').innerHTML = '<table class="ts-table"><tr><th>Utilisateur</th><th></th><th class="n">Lu</th><th class="n">Quota</th></tr>' + ids.map(function (k) {
+        var used = (r.users || {})[k] || 0, q = (r.quotas || {})[k] || 0, pct = q ? used / q : 0;
+        return '<tr><td>' + esc(r.names[k]) + '</td><td style="width:40%"><div class="ts-bar' + (pct >= 1 ? ' full' : pct >= .8 ? ' warn' : '') + '" style="width:' + Math.max(1, 100 * used / max) + '%"></div></td><td class="n">' + gb(used) + '</td><td class="n">' + (q ? gb(q) + ' (' + Math.round(pct * 100) + ' %)' : 'illimité') + '</td></tr>';
+      }).join('') + '</table>';
+      $('tsStatsTitles').innerHTML = (r.titles || []).length ? '<table class="ts-table"><tr><th>Titre</th><th class="n">Lu</th><th class="n">Spectateurs</th></tr>' + r.titles.map(function (t) {
+        return '<tr><td>' + esc(t.title) + ' <small style="opacity:.6">' + (t.type === 'movie' ? 'film' : 'série') + '</small></td><td class="n">' + gb(t.bytes) + '</td><td class="n">' + t.viewers + '</td></tr>';
+      }).join('') + '</table>' : '<p class="fieldDescription">Rien de lu pour l\'instant ce mois-ci.</p>';
+      $('tsStatsHistory').innerHTML = (r.history || []).length ? '<table class="ts-table"><tr><th>Mois</th>' + ids.map(function (k) { return '<th class="n">' + esc(r.names[k]) + '</th>'; }).join('') + '<th class="n">Total</th></tr>' + r.history.map(function (h) {
+        var tot = 0;
+        return '<tr><td>' + esc(h.month) + '</td>' + ids.map(function (k) { var v = h.users[k] || 0; tot += v; return '<td class="n">' + gb(v) + '</td>'; }).join('') + '<td class="n"><b>' + gb(tot) + '</b></td></tr>';
+      }).join('') + '</table>' : '<p class="fieldDescription">L\'historique se remplit à la fin de chaque mois.</p>';
+    }, function () { $('tsStatsMonth').textContent = 'Statistiques indisponibles.'; });
+  }
+  function loadCalendar() {
+    api('GET', 'calendar').then(function (r) {
+      var now = Date.now();
+      $('tsCalendar').innerHTML = (r.items || []).length ? '<table class="ts-table"><tr><th>Série</th><th>Épisode</th><th>Sortie</th><th>Comptes</th></tr>' + r.items.map(function (i) {
+        var d = new Date(i.when), days = Math.ceil((d.getTime() - now) / 864e5);
+        var when = i.hasTime ? d.toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+        return '<tr><td>' + esc(i.title) + '</td><td>S' + ('0' + i.season).slice(-2) + 'E' + ('0' + i.episode).slice(-2) + (i.name ? ' <small style="opacity:.6">' + esc(i.name) + '</small>' : '') + '</td><td>' + esc(when) + ' <small style="opacity:.6">' + (days <= 0 ? 'aujourd\'hui' : 'dans ' + days + ' j') + '</small></td><td>' + esc((i.owners || []).join(', ')) + '</td></tr>';
+      }).join('') + '</table>' : '<p class="fieldDescription">Aucune sortie à venir pour tes séries.</p>';
+      $('tsFeeds').innerHTML = Object.keys(r.feeds || {}).map(function (n) {
+        var url = ApiClient.getUrl(r.feeds[n]);
+        return '<div class="inputContainer"><label class="inputLabel">' + esc(n) + '</label><input is="emby-input" type="text" readonly value="' + esc(url) + '" onclick="this.select()" /></div>';
+      }).join('');
+    }, function () { $('tsCalendar').textContent = 'Calendrier indisponible.'; });
+  }
+  function loadVpn() {
+    api('GET', 'vpn').then(function (v) {
+      $('tsVpn').textContent = !v.available ? 'État du VPN non configuré (script de suivi absent).'
+        : 'IP publique : ' + (v.ip || 'inconnue') + '\nConnexion Internet : ' + (!v.fresh ? 'état non mis à jour' : v.online ? '✅ en ligne' : '❌ pas de connexion')
+          + (v.port ? '\nPort ouvert : ' + v.port : '');
+    }, function () { $('tsVpn').textContent = ''; });
+  }
+  // ---- onglets
+  (function () {
+    var tabs = [].slice.call(page.querySelectorAll('.ts-tab')), panels = [].slice.call(page.querySelectorAll('.ts-panel'));
+    function show(name) {
+      tabs.forEach(function (t) { t.classList.toggle('active', t.getAttribute('data-tab') === name); });
+      panels.forEach(function (p) { p.classList.toggle('active', p.getAttribute('data-panel') === name); });
+      if (name === 'stats') loadStats();
+      if (name === 'calendrier') loadCalendar();
+      if (name === 'connexions') loadVpn();
+      try { localStorage.setItem('tsTab', name); } catch (e) { }
+    }
+    tabs.forEach(function (t) { t.addEventListener('click', function () { show(t.getAttribute('data-tab')); }); });
+    var saved = null; try { saved = localStorage.getItem('tsTab'); } catch (e) { }
+    if (saved && tabs.some(function (t) { return t.getAttribute('data-tab') === saved; })) show(saved);
+  })();
+  function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+  function api(method, path, body) {
+    var o = { type: method, url: ApiClient.getUrl('TorrServerPlugin/' + path), dataType: 'json' };
+    if (body !== undefined) { o.data = JSON.stringify(body); o.contentType = 'application/json'; }
+    return ApiClient.ajax(o);
+  }
+  function errText(e) {
+    if (e && e.json) { return e.json().then(function (j) { return j.error || j.message || JSON.stringify(j); }, function () { return 'Erreur'; }); }
+    return Promise.resolve((e && e.message) || 'Erreur');
+  }
+  var fields = { tmdbToken: 'TmdbReadAccessToken', tmdbKey: 'TmdbApiKey', prowlarrUrl: 'ProwlarrUrl', prowlarrKey: 'ProwlarrApiKey',
+    torrUrl: 'TorrServerUrl', torrUser: 'TorrServerUsername', torrPass: 'TorrServerPassword', jfUrl: 'JellyfinInternalUrl',
+    avoidTags: 'AvoidTags', libRoot: 'LibraryRoot' };
+  var numbers = { autoPages: 'AutoPages', autoMaxEp: 'AutoMaxEpisodes', cleanupDays: 'CleanupDays', monthlyQuota: 'MonthlyQuotaGb', maxRes: 'MaxResolution', minSeeds: 'MinSeeders', maxMovieGb: 'MaxMovieSizeGb', maxEpGb: 'MaxEpisodeSizeGb' };
+
+  // ---------- langues : cases à cocher (stockées en mots-clés) ----------
+  var LANGS = [
+    ['fr', 'Français (VF, MULTI)', 'multi,vff,vf,vf2,vfq,vfi,truefrench,french'],
+    ['vostfr', 'VOSTFR', 'vostfr,subfrench,vost'],
+    ['vo', 'VO (langue d\'origine)', 'vo'],
+    ['en', 'Anglais', 'english,eng'],
+    ['es', 'Espagnol', 'spanish,castellano,latino,esp'],
+    ['de', 'Allemand', 'german,deutsch'],
+    ['it', 'Italien', 'italian,ita'],
+    ['ja', 'Japonais', 'japanese,jap,jpn'],
+    ['pt', 'Portugais', 'portuguese,dublado'],
+  ];
+  function splitTags(t) { return (t || '').toLowerCase().split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
+  function langBox(cls, tags) {
+    var set = splitTags(tags), used = {};
+    var html = '<div class="ts-langs">' + LANGS.map(function (l) {
+      var t = l[2].split(','), on = t.some(function (x) { return set.indexOf(x) >= 0; });
+      if (on) t.forEach(function (x) { used[x] = 1; });
+      return '<label><input type="checkbox" class="' + cls + 'L" data-l="' + l[0] + '"' + (on ? ' checked' : '') + '> ' + l[1] + '</label>';
+    }).join('') + '</div>';
+    return html + '<input type="text" class="' + cls + 'X" value="' + esc(set.filter(function (x) { return !used[x]; }).join(',')) + '" placeholder="Autres mots-clés (séparés par des virgules)">';
+  }
+  function langRead(root, cls) {
+    var tags = [];
+    [].forEach.call(root.querySelectorAll('.' + cls + 'L'), function (c) {
+      if (!c.checked) return;
+      LANGS.forEach(function (l) { if (l[0] === c.getAttribute('data-l')) tags = tags.concat(l[2].split(',')); });
+    });
+    tags = tags.concat(splitTags(root.querySelector('.' + cls + 'X').value));
+    return tags.filter(function (x, i) { return tags.indexOf(x) === i; }).join(',');
+  }
+
+  function load() {
+    Dashboard.showLoadingMsg();
+    ApiClient.getPluginConfiguration(PLUGIN).then(function (c) {
+      Object.keys(fields).forEach(function (k) { $(k).value = c[fields[k]] || ''; });
+      Object.keys(numbers).forEach(function (k) { $(k).value = c[numbers[k]]; });
+      $('autoCatalog').checked = c.AutoCatalog !== false;
+      $('gLang').innerHTML = langBox('g', c.PreferredTags);
+      loadUsers(c);
+      Dashboard.hideLoadingMsg();
+      loadCatalog(); refreshStatus();
+    });
+  }
+  function save() {
+    return ApiClient.getPluginConfiguration(PLUGIN).then(function (c) {
+      Object.keys(fields).forEach(function (k) { c[fields[k]] = $(k).value.trim(); });
+      Object.keys(numbers).forEach(function (k) { var v = parseInt($(k).value, 10); if (!isNaN(v)) c[numbers[k]] = v; });
+      c.PreferredTags = langRead($('gLang'), 'g');
+      c.AutoCatalog = $('autoCatalog').checked;
+      var prof = readUsers(); if (prof !== null) { c.UserProfiles = prof; c.UserIndexers = ''; }
+      return ApiClient.updatePluginConfiguration(PLUGIN, c);
+    });
+  }
+  // ---- profils par utilisateur
+  var usersReady = false;
+  function norm(id) { return String(id).replace(/-/g, '').toLowerCase(); }
+  function loadUsers(c) {
+    var map = {};
+    try { map = c.UserProfiles ? JSON.parse(c.UserProfiles) : {}; } catch (e) { map = {}; }
+    try { var old = c.UserIndexers ? JSON.parse(c.UserIndexers) : {}; Object.keys(old).forEach(function (k) { if (!map[k]) map[k] = { Custom: true, Indexers: old[k] }; }); } catch (e) { }
+    var profiles = {}; Object.keys(map).forEach(function (k) { profiles[norm(k)] = map[k]; });
+    Promise.all([ApiClient.getUsers(), api('GET', 'indexers').catch(function () { return []; }), api('GET', 'usage').catch(function () { return { users: {} }; })]).then(function (r) {
+      var users = r[0], idx = r[1], used = (r[2] && r[2].users) || {};
+      var g = { tags: c.PreferredTags, avoid: c.AvoidTags, res: c.MaxResolution, seeds: c.MinSeeders, movie: c.MaxMovieSizeGb, ep: c.MaxEpisodeSizeGb, h264: c.PreferH264 };
+      var html = users.map(function (u) {
+        var p = profiles[norm(u.Id)] || {}, custom = !!p.Custom, all = !p.Indexers;
+        var val = function (v) { return v == null ? '' : esc(v); };
+        var resOpt = function (v) { return '<option value="' + v + '"' + ((p.MaxResolution || 0) === v ? ' selected' : '') + '>' + (v ? v + 'p' : 'Global (' + g.res + 'p)') + '</option>'; };
+        var usedGb = ((used[norm(u.Id)] || 0) / 1e9).toFixed(1);
+        var quotaGb = p.QuotaGb != null ? p.QuotaGb : (c.MonthlyQuotaGb || 0);
+        var summary = usedGb + ' Go ce mois-ci' + (quotaGb ? ' / ' + quotaGb + ' Go' : ' (illimité)') + (custom ? ' · profil personnalisé' : '') + (p.Discover === false ? ' · sans Découvrir' : '');
+        return '<div class="ts-user" data-user="' + norm(u.Id) + '">' +
+          '<div class="ts-user-top"><span class="ts-chev">▸</span><b>' + esc(u.Name) + (u.Policy && u.Policy.IsAdministrator ? ' <small style="opacity:.6;font-weight:normal">(administrateur)</small>' : '') + '</b><span class="ts-sum">' + esc(summary) + '</span></div>' +
+          '<div class="ts-ubody" hidden>' +
+          '<div class="ts-user-head">' +
+          '<label><input type="checkbox" class="uDiscover"' + (p.Discover === false ? '' : ' checked') + '> Découvrir (TMDB)</label>' +
+          '<label>Quota/mois (Go) <input type="number" min="0" class="uQuota" style="width:90px" value="' + val(p.QuotaGb) + '" placeholder="' + (c.MonthlyQuotaGb ? 'Global : ' + c.MonthlyQuotaGb : 'Illimité') + '"></label>' +
+          '<span class="uUsed" style="opacity:.8">' + ((used[norm(u.Id)] || 0) / 1e9).toFixed(1) + ' Go ce mois-ci <a href="#" class="uReset">remettre à zéro</a></span>' +
+          '<label><input type="checkbox" class="uCustom"' + (custom ? ' checked' : '') + '> Profil de sources personnalisé</label></div>' +
+          '<div class="ts-prof"' + (custom ? '' : ' hidden') + '>' +
+            '<div class="wide"><span class="l">Trackers autorisés</span><div class="ts-idx">' +
+              '<label><input type="checkbox" class="uAll"' + (all ? ' checked' : '') + '> <b>Tous</b> (y compris ceux ajoutés plus tard)</label>' +
+              idx.map(function (i) { var on = all || p.Indexers.indexOf(i.name) >= 0; return '<label class="' + (i.enabled ? '' : 'off') + '"><input type="checkbox" class="uIdx" data-name="' + esc(i.name) + '"' + (on ? ' checked' : '') + (all ? ' disabled' : '') + '> ' + esc(i.name) + '</label>'; }).join('') +
+            '</div></div>' +
+            '<div class="wide"><span class="l">Langues préférées (aucune case cochée = réglage global)</span>' + langBox('u', p.PreferredTags) + '</div>' +
+            '<label class="wide" style="display:block"><span class="l">Mots-clés à éviter</span><input type="text" class="uAvoid" value="' + val(p.AvoidTags) + '" placeholder="Global : ' + esc(g.avoid) + '"></label>' +
+            '<label style="display:block"><span class="l">Résolution maximale</span><select class="uRes">' + [0, 480, 720, 1080, 2160].map(resOpt).join('') + '</select></label>' +
+            '<label style="display:block"><span class="l">Préférer le H.264</span><select class="uH264"><option value=""' + (p.PreferH264 == null ? ' selected' : '') + '>Global (' + (g.h264 ? 'oui' : 'non') + ')</option><option value="1"' + (p.PreferH264 === true ? ' selected' : '') + '>Oui (lecture plus fluide)</option><option value="0"' + (p.PreferH264 === false ? ' selected' : '') + '>Non (HEVC accepté)</option></select></label>' +
+            '<label style="display:block"><span class="l">Sources minimum</span><input type="number" min="0" class="uSeeds" value="' + val(p.MinSeeders) + '" placeholder="Global : ' + g.seeds + '"></label>' +
+            '<label style="display:block"><span class="l">Taille max. film (Go)</span><input type="number" min="1" class="uMovie" value="' + val(p.MaxMovieSizeGb) + '" placeholder="Global : ' + g.movie + '"></label>' +
+            '<label style="display:block"><span class="l">Taille max. épisode (Go)</span><input type="number" min="1" class="uEp" value="' + val(p.MaxEpisodeSizeGb) + '" placeholder="Global : ' + g.ep + '"></label>' +
+          '</div></div></div>';
+      }).join('');
+      var box = $('tsUsers'); box.innerHTML = html; usersReady = true;
+      box.onclick = function (e) {
+        var top = e.target.closest('.ts-user-top');
+        if (top) {
+          var body = top.parentNode.querySelector('.ts-ubody');
+          body.hidden = !body.hidden;
+          top.querySelector('.ts-chev').textContent = body.hidden ? '▸' : '▾';
+          return;
+        }
+        if (!e.target.classList.contains('uReset')) return;
+        e.preventDefault();
+        var card = e.target.closest('.ts-user');
+        api('POST', 'usage/reset?user=' + card.getAttribute('data-user')).then(function () { card.querySelector('.uUsed').firstChild.textContent = '0.0 Go ce mois-ci '; });
+      };
+      box.onchange = function (e) {
+        var card = e.target.closest('.ts-user'); if (!card) return;
+        if (e.target.classList.contains('uCustom')) card.querySelector('.ts-prof').hidden = !e.target.checked;
+        if (e.target.classList.contains('uAll'))
+          [].forEach.call(card.querySelectorAll('.uIdx'), function (x) { x.disabled = e.target.checked; if (e.target.checked) x.checked = true; });
+      };
+    });
+  }
+  function readUsers() {
+    if (!usersReady) return null;
+    var map = {};
+    var num = function (el) { var v = parseInt(el.value, 10); return isNaN(v) ? null : v; };
+    [].forEach.call($('tsUsers').querySelectorAll('.ts-user'), function (card) {
+      var p = { Discover: card.querySelector('.uDiscover').checked, Custom: card.querySelector('.uCustom').checked };
+      if (p.Custom) {
+        p.Indexers = card.querySelector('.uAll').checked ? null : [].filter.call(card.querySelectorAll('.uIdx'), function (x) { return x.checked; }).map(function (x) { return x.getAttribute('data-name'); });
+        var t = langRead(card, 'u'), a = card.querySelector('.uAvoid').value.trim();
+        p.PreferredTags = t || null; p.AvoidTags = a || null;
+        p.MaxResolution = parseInt(card.querySelector('.uRes').value, 10) || null;
+        var h = card.querySelector('.uH264').value; p.PreferH264 = h === '' ? null : h === '1';
+        p.MinSeeders = num(card.querySelector('.uSeeds')); p.MaxMovieSizeGb = num(card.querySelector('.uMovie')); p.MaxEpisodeSizeGb = num(card.querySelector('.uEp'));
+      }
+      var q = num(card.querySelector('.uQuota')); if (q != null) p.QuotaGb = q;
+      if (p.Custom || !p.Discover || q != null) map[card.getAttribute('data-user')] = p;
+    });
+    return Object.keys(map).length ? JSON.stringify(map) : '';
+  }
+
+  var pollTimer = null;
+  function refreshStatus() {
+    api('GET', 'status').then(function (r) {
+      var t = r.movies + ' films et ' + r.shows + ' séries dans la bibliothèque (dont ' + r.manual + ' ajoutés à la main).';
+      if (r.syncing) t += '\n⏳ ' + (r.message || 'Mise à jour…') + (r.total ? ' ' + r.done + '/' + r.total : '');
+      else if (r.message) t += '\n' + r.message;
+      $('tsAutoStatus').textContent = t;
+      $('tsSync').disabled = r.syncing;
+      clearTimeout(pollTimer);
+      if (r.syncing) pollTimer = setTimeout(refreshStatus, 3000);
+    }, function () { $('tsAutoStatus').textContent = ''; });
+  }
+  $('tsSync').addEventListener('click', function () { api('POST', 'sync').then(function () { setTimeout(refreshStatus, 800); }); });
+
+  // ---------- titres ouverts ----------
+  function loadCatalog() {
+    api('GET', 'catalog').then(function (items) {
+      $('tsCatalogStatus').textContent = items.length ? items.length + ' titre(s). « Retirer » supprime le titre de la bibliothèque Jellyfin.' : 'Aucun titre pour le moment.';
+      $('tsCatalog').innerHTML = items.map(function (x, i) {
+        return '<div class="ts-title"><span>' + esc(x.Title) + (x.Year ? ' (' + x.Year + ')' : '') + ' <small>' + (x.Type === 'tv' ? 'série' : 'film') + '</small></span>' +
+          '<button is="emby-button" type="button" class="raised" data-c="' + i + '"><span>Retirer</span></button></div>';
+      }).join('');
+      $('tsCatalog').querySelectorAll('[data-c]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var x = items[parseInt(b.getAttribute('data-c'), 10)];
+          if (!confirm('Retirer « ' + x.Title + ' » de la bibliothèque ?')) return;
+          b.disabled = true;
+          api('DELETE', 'catalog/' + x.Type + '/' + x.TmdbId).then(loadCatalog, loadCatalog);
+        });
+      });
+    });
+  }
+
+  $('tsRefresh').addEventListener('click', function () {
+    $('tsCatalogStatus').textContent = 'Recherche des nouveaux épisodes…';
+    api('POST', 'refresh').then(function (r) { $('tsCatalogStatus').textContent = r.added + ' nouvel(s) épisode(s).'; loadCatalog(); });
+  });
+  $('tsTest').addEventListener('click', function () {
+    $('tsStatus').textContent = 'Test en cours…';
+    save().then(function () { return api('POST', 'test'); }).then(function (r) {
+      $('tsStatus').textContent = Object.keys(r).map(function (k) { return k + ' : ' + r[k]; }).join('\n');
+    }, function (e) { errText(e).then(function (t) { $('tsStatus').textContent = 'Échec : ' + t; }); });
+  });
+  $('tsSetup').addEventListener('click', function () {
+    save().then(function () { return api('POST', 'setup'); }).then(function (r) { $('tsStatus').textContent = r.message + '\nDossier : ' + r.root; },
+      function (e) { errText(e).then(function (t) { $('tsStatus').textContent = 'Échec : ' + t; }); });
+  });
+  $('tsForm').addEventListener('submit', function (e) {
+    e.preventDefault(); Dashboard.showLoadingMsg();
+    save().then(function (r) { api('POST', 'sync').then(function () { setTimeout(refreshStatus, 800); }); Dashboard.processPluginConfigurationUpdateResult(r); });
+  });
+  page.addEventListener('pageshow', load);
+})();
+</script>
+</div>
+</body>
+</html>

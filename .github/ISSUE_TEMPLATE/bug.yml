@@ -1,0 +1,36 @@
+name: Bug
+description: Quelque chose ne fonctionne pas
+labels: [bug]
+body:
+  - type: textarea
+    id: probleme
+    attributes:
+      label: Problème
+      description: Ce qui se passe, et ce qui devrait se passer.
+    validations:
+      required: true
+  - type: textarea
+    id: etapes
+    attributes:
+      label: Étapes pour reproduire
+      placeholder: "1. Ouvrir Découvrir\n2. Cliquer sur…\n3. …"
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: "Jellyfin 12.4, plugin 0.5.0, TorrServer MatriX.136, Prowlarr 2.x"
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client
+      options: [Navigateur web, Application Android, Android TV, iOS, Kodi, Autre]
+  - type: textarea
+    id: journal
+    attributes:
+      label: Journal de Jellyfin
+      description: Lignes contenant « TorrServer ». Retirez clés API, IP publiques et noms de trackers privés.
+      render: text

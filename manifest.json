@@ -1,0 +1,37 @@
+[
+  {
+    "guid": "655fbf1b-525b-4f82-bdeb-f27dd0bdd606",
+    "name": "TorrServer",
+    "description": "Films, séries et animes en streaming par torrent (Prowlarr + TorrServer) dans Jellyfin, sans rien télécharger.",
+    "overview": "Dans Jellyfin : page Découvrir (TMDB), choix automatique de la meilleure source, animes avec passer l'intro, prochains épisodes, bibliothèque personnelle et quotas par utilisateur.",
+    "owner": "jonathan-pp",
+    "category": "General",
+    "imageUrl": "https://raw.githubusercontent.com/jonathan-pp/jellyfin-torrserver/main/assets/logo.png",
+    "versions": [
+      {
+        "version": "0.5.0.0",
+        "changelog": "Bibliothèque personnelle par utilisateur, prochains épisodes (date dans le résumé, page « À venir », avertissement à la sortie, agenda .ics), onglet Calendrier, genres et catégorie « En production » pour les animes, aucune recherche de source avant la sortie d'un épisode, étiquettes internes masquées, logo du plugin corrigé.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/jonathan-pp/jellyfin-torrserver/main/dist/TorrServer-0.5.0.0.zip",
+        "checksum": "9f198a25941db4d45f97908e903ba9d2",
+        "timestamp": "2026-11-10T20:29:28Z"
+      },
+      {
+        "version": "0.4.0.0",
+        "changelog": "Animes dans leur propre bibliothèque et saisons redécoupées (Re:ZERO…), passer l'intro/générique (AniSkip), quota mensuel par utilisateur avec avertissement à 80 %, statistiques d'usage, nettoyage automatique des titres non regardés, sources affichées au fur et à mesure, fiches acteur et recommandations TMDB, sous-titres extraits à l'avance, choix des langues par cases, configuration en onglets.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/jonathan-pp/jellyfin-torrserver/main/dist/TorrServer-0.4.0.0.zip",
+        "checksum": "92f2fffdbafd74608d260467f5897c5b",
+        "timestamp": "2026-11-09T20:30:29Z"
+      },
+      {
+        "version": "0.3.0.0",
+        "changelog": "Interface dédiée retirée (tout passe par Jellyfin), passage automatique à la source suivante si une source est morte, épisode suivant préparé à l'avance, versions stables, moins de charge.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://raw.githubusercontent.com/jonathan-pp/jellyfin-torrserver/main/dist/TorrServer-0.3.0.0.zip",
+        "checksum": "0d959b9b57a456a49a56ffac151775d1",
+        "timestamp": "2026-11-05T21:25:16Z"
+      }
+    ]
+  }
+]
